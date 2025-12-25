@@ -1,20 +1,37 @@
-import api from '@/services/axios';
+import api from '@/services/axios'; // Đảm bảo bạn đã cấu hình axios instance
 
-const ENDPOINT = '/admin/posts';
-
-export const fetchPosts = async ({ page = 1, limit = 10, search = '' }) => {
-    const params = { page, limit, search };
-    const res = await api.get(ENDPOINT, { params });
-    return res.data;
+// 1. Lấy danh sách (có search, pagination)
+export const fetchPosts = async (params) => {
+    // params = { page: 1, limit: 10, search: '...' }
+    const response = await api.get('/admin/posts', { params });
+    return response.data;
 };
 
-export const savePost = async (data, id = null) => {
+// 2. Lấy danh sách Chủ đề (Topic)
+export const fetchTopicsForPost = async () => {
+    const response = await api.get('/admin/posts/topics');
+    return response.data.data; 
+};
+
+// 3. Thêm hoặc Sửa
+export const savePost = async (formData, id = null) => {
     if (id) {
-        return await api.put(`${ENDPOINT}/${id}`, data);
+        // --- CẬP NHẬT (Update) ---
+        // Lưu ý: Khi dùng FormData để upload file trong Laravel qua method PUT,
+        // ta phải dùng POST và thêm field "_method": "PUT"
+        formData.append('_method', 'PUT');
+        return await api.post(`/admin/posts/${id}`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+    } else {
+        // --- THÊM MỚI (Create) ---
+        return await api.post('/admin/posts', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
     }
-    return await api.post(ENDPOINT, data);
 };
 
+// 4. Xóa
 export const deletePost = async (id) => {
-    return await api.delete(`${ENDPOINT}/${id}`);
+    return await api.delete(`/admin/posts/${id}`);
 };
