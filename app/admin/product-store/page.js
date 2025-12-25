@@ -3,17 +3,22 @@
 import { useEffect, useState } from "react";
 import { ProductStoreService } from "@/services/admin/ProductStoreService";
 
-// --- IMPORT THƯ VIỆN THÔNG BÁO ---
+// --- IMPORT THƯ VIỆN UI ---
 import toast, { Toaster } from 'react-hot-toast';
 import Swal from 'sweetalert2'; 
+import Pagination from '@/components/Pagination'; // <--- 1. IMPORT PAGINATION
 
 // ================= COMPONENT CHÍNH =================
 export default function ProductStoreManager() {
   // --- STATE ---
   const [items, setItems] = useState([]);
-  const [products, setProducts] = useState([]);
+  const [products, setProducts] = useState([]); // Danh sách SP cho dropdown
   const [loading, setLoading] = useState(true);
   
+  // State Phân trang
+  const [currentPage, setCurrentPage] = useState(1); // <--- 2. STATE TRANG HIỆN TẠI
+  const [lastPage, setLastPage] = useState(1);       // <--- 2. STATE TỔNG SỐ TRANG
+
   // State Modal
   const [showModal, setShowModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -27,21 +32,29 @@ export default function ProductStoreManager() {
     status: 1,
   });
 
-  // --- 1. LOAD DỮ LIỆU ---
+  // --- 1. LOAD DỮ LIỆU BAN ĐẦU (Dropdown Products) ---
   useEffect(() => {
-    loadInitialData();
+    const fetchProductsForSelect = async () => {
+        try {
+            const res = await ProductStoreService.getProductsForSelect();
+            setProducts(res.data || res || []);
+        } catch (error) {
+            console.error("Lỗi tải danh sách sản phẩm:", error);
+        }
+    };
+    fetchProductsForSelect();
   }, []);
 
-  const loadInitialData = async () => {
+  // --- 2. LOAD DỮ LIỆU KHO (THEO TRANG) ---
+  const fetchStoreItems = async () => {
     try {
       setLoading(true);
-      const [storeRes, productRes] = await Promise.all([
-        ProductStoreService.getAll(),
-        ProductStoreService.getProductsForSelect()
-      ]);
-
-      setItems(storeRes.data.data || []); 
-      setProducts(productRes.data || productRes || []);
+      // Gọi API kèm tham số page
+      const res = await ProductStoreService.getAll({ page: currentPage });
+      
+      // Cập nhật dữ liệu và thông tin phân trang
+      setItems(res.data.data || []); 
+      setLastPage(res.data.last_page || 1); // Cập nhật tổng số trang từ API
     } catch (error) {
       console.error("Lỗi tải dữ liệu:", error);
       toast.error("Không thể tải dữ liệu kho!");
@@ -50,7 +63,12 @@ export default function ProductStoreManager() {
     }
   };
 
-  // --- 2. HÀNH ĐỘNG MODAL ---
+  // Gọi lại khi currentPage thay đổi
+  useEffect(() => {
+    fetchStoreItems();
+  }, [currentPage]);
+
+  // --- HÀNH ĐỘNG MODAL ---
   const handleOpenAdd = () => {
     setIsEditing(false);
     setFormData({ product_id: "", price_root: "", qty: "", status: 1 });
@@ -74,17 +92,15 @@ export default function ProductStoreManager() {
     setCurrentItem(null);
   };
 
-  // --- 3. XỬ LÝ SUBMIT (DÙNG TOAST) ---
+  // --- XỬ LÝ SUBMIT ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // Validate cơ bản
     if(formData.price_root < 0 || formData.qty < 0) {
         toast.error("Giá và số lượng không được âm!");
         return;
     }
 
-    // Hiển thị loading toast
     const toastId = toast.loading('Đang xử lý...');
 
     try {
@@ -96,20 +112,18 @@ export default function ProductStoreManager() {
         toast.success("Nhập kho thành công!", { id: toastId });
       }
 
-      // Reload data
-      const res = await ProductStoreService.getAll();
-      setItems(res.data.data || []);
+      // Reload lại trang hiện tại
+      fetchStoreItems();
       handleCloseModal();
 
     } catch (error) {
       console.error(error);
-      // Lấy thông báo lỗi từ backend nếu có
       const msg = error.response?.data?.message || "Đã có lỗi xảy ra!";
       toast.error(msg, { id: toastId });
     }
   };
 
-  // --- 4. XỬ LÝ XÓA (DÙNG SWEETALERT2) ---
+  // --- XỬ LÝ XÓA ---
   const handleDelete = (id) => {
     Swal.fire({
       title: 'Bạn có chắc chắn?',
@@ -124,24 +138,13 @@ export default function ProductStoreManager() {
       if (result.isConfirmed) {
         try {
             await ProductStoreService.delete(id);
+            Swal.fire('Đã xóa!', 'Phiếu nhập kho đã được xóa.', 'success');
             
-            // Thông báo xóa thành công
-            Swal.fire(
-              'Đã xóa!',
-              'Phiếu nhập kho đã được xóa.',
-              'success'
-            );
-
-            // Reload data
-            const res = await ProductStoreService.getAll();
-            setItems(res.data.data || []);
+            // Reload lại data
+            fetchStoreItems();
 
         } catch (error) {
-            Swal.fire(
-                'Lỗi!',
-                'Không thể xóa phiếu nhập này.',
-                'error'
-              );
+            Swal.fire('Lỗi!', 'Không thể xóa phiếu nhập này.', 'error');
         }
       }
     });
@@ -149,15 +152,8 @@ export default function ProductStoreManager() {
 
   const formatMoney = (num) => new Intl.NumberFormat("vi-VN").format(num) + " đ";
 
-  if (loading) return (
-      <div className="flex justify-center items-center h-screen">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-  );
-
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
-      {/* --- CẤU HÌNH TOASTER (Để hiển thị thông báo) --- */}
       <Toaster position="top-right" reverseOrder={false} />
 
       {/* HEADER */}
@@ -178,7 +174,7 @@ export default function ProductStoreManager() {
       </div>
 
       {/* TABLE */}
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-100">
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-100 min-h-[400px]">
         <table className="w-full text-left border-collapse">
           <thead className="bg-gray-50 text-gray-600 uppercase text-xs font-bold tracking-wider">
             <tr>
@@ -192,7 +188,13 @@ export default function ProductStoreManager() {
             </tr>
           </thead>
           <tbody className="text-sm divide-y divide-gray-100">
-            {items.length > 0 ? (
+            {loading ? (
+                 <tr>
+                    <td colSpan="7" className="p-10 text-center">
+                        <div className="flex justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>
+                    </td>
+                 </tr>
+            ) : items.length > 0 ? (
               items.map((item) => (
                 <tr key={item.id} className="hover:bg-blue-50/50 transition-colors">
                   <td className="p-4 text-gray-500 font-mono">#{item.id}</td>
@@ -200,13 +202,13 @@ export default function ProductStoreManager() {
                     {item.product?.name || <span className="text-red-400 italic bg-red-50 px-2 py-1 rounded">Đã xóa SP</span>}
                   </td>
                   <td className="p-4">
-                     {item.product?.thumbnail ? (
+                      {item.product?.thumbnail ? (
                         <img 
                             src={item.product.thumbnail.includes('http') ? item.product.thumbnail : `http://localhost:8000/storage/${item.product.thumbnail}`} 
                             alt="img" 
                             className="w-12 h-12 object-cover rounded-lg border shadow-sm"
                         />
-                     ) : <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center text-xs text-gray-400">No img</div>}
+                      ) : <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center text-xs text-gray-400">No img</div>}
                   </td>
                   <td className="p-4 text-right font-bold text-gray-700">
                     {formatMoney(item.price_root)}
@@ -260,6 +262,17 @@ export default function ProductStoreManager() {
           </tbody>
         </table>
       </div>
+
+      {/* --- 3. HIỂN THỊ PAGINATION --- */}
+      {lastPage > 1 && (
+        <div className="mt-6 flex justify-center">
+            <Pagination 
+                currentPage={currentPage} 
+                totalPages={lastPage} 
+                onPageChange={setCurrentPage} 
+            />
+        </div>
+      )}
 
       {/* ================= MODAL FORM ================= */}
       {showModal && (

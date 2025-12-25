@@ -42,7 +42,7 @@ export default function ShopPage() {
 
   // --- PHÂN TRANG ---
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10; 
+  const itemsPerPage = 8; 
 
   // 1. Tải dữ liệu
   useEffect(() => {

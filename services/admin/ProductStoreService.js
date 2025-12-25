@@ -3,9 +3,16 @@ import axios from "axios";
 const API_URL = "http://localhost:8000/api/admin";
 
 export const ProductStoreService = {
-  // Lấy danh sách kho
-  getAll: async () => {
-    const response = await axios.get(`${API_URL}/product-store`);
+  // Lấy danh sách kho (có phân trang)
+  getAll: async (params = {}) => {
+    // params sẽ chứa { page: 2, per_page: 10, ... }
+    
+    // Debug: Kiểm tra xem param có được truyền vào không
+    console.log("Service Calling API with params:", params);
+
+    const response = await axios.get(`${API_URL}/product-store`, {
+      params: params, 
+    });
     return response.data;
   },
 
@@ -30,11 +37,9 @@ export const ProductStoreService = {
     return await axios.delete(`${API_URL}/product-store/${id}`);
   },
 
-  // Lấy danh sách sản phẩm để chọn khi nhập kho (Cần API Products)
+  // Lấy danh sách sản phẩm để chọn
   getProductsForSelect: async () => {
-    // Gọi API lấy tất cả sản phẩm (bạn có thể dùng API products existing)
-    // Lưu ý: Nếu sản phẩm nhiều cần làm search, ở đây mình lấy list đơn giản
-    const response = await axios.get(`${API_URL}/products?limit=100`); 
+    const response = await axios.get(`${API_URL}/products?limit=100`);
     return response.data;
   }
 };
