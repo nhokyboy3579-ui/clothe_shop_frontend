@@ -15,9 +15,9 @@ export default function HomeFooter() {
     }, []);
 
     return (
-        <footer className="bg-slate-900 text-white py-16 border-t-4 border-blue-600 mt-20">
+        <footer className="bg-white text-gray-800 py-16 border-t border-gray-200 mt-20">
             <div className="container mx-auto px-4 text-center">
-                <h2 className="text-2xl md:text-3xl font-bold uppercase mb-8 tracking-widest">
+                <h2 className="text-2xl md:text-3xl font-bold uppercase mb-8 tracking-widest text-gray-900">
                     Khám Phá Blog & Tin Tức
                 </h2>
                 
@@ -26,8 +26,11 @@ export default function HomeFooter() {
                         topics.map((topic) => (
                             <Link 
                                 key={topic.id} 
-                                href={`/topics/${topic.slug}`} // Link đến trang danh sách bài viết
-                                className="bg-slate-800 hover:bg-blue-600 text-gray-300 hover:text-white px-6 py-3 rounded-full transition-all duration-300 font-medium shadow-lg border border-slate-700 hover:border-blue-500 hover:-translate-y-1"
+                                href={`/topics/${topic.slug}`} 
+                                // Cập nhật style nút bấm cho nền trắng:
+                                // Nền xám nhạt (bg-gray-100) thay vì xám đậm
+                                // Chữ xám đậm (text-gray-700) thay vì trắng mờ
+                                className="bg-gray-100 hover:bg-blue-600 hover:text-white text-gray-700 px-6 py-3 rounded-full transition-all duration-300 font-medium shadow-sm border border-gray-200 hover:border-blue-500 hover:-translate-y-1"
                             >
                                 {topic.name}
                             </Link>
@@ -37,7 +40,7 @@ export default function HomeFooter() {
                     )}
                 </div>
 
-                <div className="mt-12 pt-8 border-t border-slate-800 text-sm text-gray-500">
+                <div className="mt-12 pt-8 border-t border-gray-100 text-sm text-gray-500">
                     &copy; {new Date().getFullYear()} My Store. Designed for content lovers.
                 </div>
             </div>
