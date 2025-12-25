@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import ProductCard from "@/components/ProductCard";
 import Header from "@/components/Header";
+import HomeFooter from "@/components/HomeFooter"; // <--- ĐÃ IMPORT FOOTER
 import Link from "next/link";
 import Image from "next/image";
 import axios from "axios"; 
@@ -99,7 +100,7 @@ export default function Home() {
       const slideshows = allBanners.filter((b) => b.position === "slideshow");
       const sortedProducts = [...allProducts].sort((a, b) => b.id - a.id);
 
-      // --- SỬA TẠI ĐÂY: Lấy 10 sản phẩm mới nhất ---
+      // --- Lấy 10 sản phẩm mới nhất ---
       const latestProducts = sortedProducts.slice(0, 10);
 
       return { latestProducts, slideshows };
@@ -129,7 +130,7 @@ export default function Home() {
   );
 
   return (
-    <main className="min-h-screen bg-white pb-20">
+    <main className="min-h-screen bg-white flex flex-col">
       <Header />
 
       {/* ================= 1. BANNER SLIDER ================= */}
@@ -202,7 +203,7 @@ export default function Home() {
       )}
 
       {/* ================= 3. SẢN PHẨM MỚI (Hiện 10 sản phẩm) ================= */}
-      <section className="container mx-auto px-4 mb-10">
+      <section className="container mx-auto px-4 mb-10 flex-grow">
         <div className="flex items-center justify-between mb-8 border-b pb-4">
              <div className="flex flex-col">
                 <h2 className="text-2xl font-serif uppercase tracking-widest text-gray-900">Sản Phẩm Mới</h2>
@@ -224,11 +225,9 @@ export default function Home() {
         )}
       </section>
 
-      <footer className="bg-gray-50 py-10 border-t mt-auto">
-        <div className="container mx-auto text-center text-gray-500 text-sm">
-          &copy; 2025 THỜI TRANG THÚY NGHIỆM.
-        </div>
-      </footer>
+      {/* ================= 4. FOOTER RIÊNG CHO HOME ================= */}
+      <HomeFooter /> 
+      
     </main>
   );
 }
