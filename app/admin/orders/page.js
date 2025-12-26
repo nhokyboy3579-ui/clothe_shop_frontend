@@ -11,7 +11,7 @@ import { fetchOrders, fetchOrderDetail, createOrder, updateOrderStatus, deleteOr
 import Pagination from '@/components/Pagination'; 
 
 export default function AdminOrders() {
-  const [allOrders, setAllOrders] = useState([]); // Lưu TẤT CẢ đơn hàng
+  const [allOrders, setAllOrders] = useState([]); 
   const [products, setProducts] = useState([]); 
   const [loading, setLoading] = useState(true);
   
@@ -107,14 +107,16 @@ export default function AdminOrders() {
   // 1. Load danh sách đơn hàng và Sản phẩm
   const fetchOrdersAndProducts = async () => {
     try {
+      setLoading(true);
       const [ordersRes, productsRes] = await Promise.all([
         fetchOrders(),
-        api.get('/admin/products') 
+        api.get('/admin/products?limit=999') 
       ]);
       setAllOrders(ordersRes);
-      setProducts(productsRes.data); 
+      // Xử lý trường hợp API products bọc trong data.data
+      setProducts(productsRes.data.data || productsRes.data || []); 
     } catch (error) {
-      toast.error(error.message || 'Lỗi tải dữ liệu đơn hàng hoặc sản phẩm');
+      toast.error('Lỗi tải dữ liệu đơn hàng hoặc sản phẩm');
     } finally {
       setLoading(false);
     }
@@ -122,21 +124,18 @@ export default function AdminOrders() {
   useEffect(() => { fetchOrdersAndProducts(); }, []);
   
   // Logic Phân trang Client-side
-  const { paginatedOrders, totalPages: calculatedTotalPages } = useMemo(() => {
+  const paginatedOrders = useMemo(() => {
     const totalItems = allOrders.length;
-    const totalPages = Math.ceil(totalItems / itemsPerPage);
+    const pages = Math.ceil(totalItems / itemsPerPage) || 1;
+    setTotalPages(pages);
 
-    if (currentPage > totalPages && totalPages > 0) {
-        setCurrentPage(totalPages);
-    } else if (totalPages === 0 && currentPage !== 1) {
-        setCurrentPage(1);
+    // Reset về trang 1 nếu trang hiện tại vượt quá tổng số trang mới
+    if (currentPage > pages && pages > 0) {
+        setCurrentPage(pages);
     }
 
     const startIndex = (currentPage - 1) * itemsPerPage;
-    const paginatedOrders = allOrders.slice(startIndex, startIndex + itemsPerPage);
-
-    setTotalPages(totalPages); 
-    return { paginatedOrders, totalPages };
+    return allOrders.slice(startIndex, startIndex + itemsPerPage);
   }, [allOrders, currentPage]);
 
 
@@ -164,8 +163,8 @@ export default function AdminOrders() {
   };
 
   const handleAddProductToOrder = () => {
-    if (!selectedProductId || selectedQuantity <= 0 || selectedPrice <= 0) {
-      return toast.error("Vui lòng chọn sản phẩm, giá và số lượng hợp lệ.");
+    if (!selectedProductId || selectedQuantity <= 0) {
+      return toast.error("Vui lòng chọn sản phẩm và số lượng hợp lệ.");
     }
     
     const product = products.find(p => String(p.id) === selectedProductId);
@@ -199,23 +198,28 @@ export default function AdminOrders() {
 
   const handleCreateOrderSubmit = async (e) => {
     e.preventDefault();
-    setIsCreating(true);
     setCreateErrors({});
     
-    const provinceName = locations.provinces.find(p => p.code == address.province)?.name;
-    const districtName = locations.districts.find(d => d.code == address.district)?.name;
-    const wardName = locations.wards.find(w => w.code == address.ward)?.name;
+    // Gom địa chỉ
+    const provinceName = locations.provinces.find(p => p.code == address.province)?.name || '';
+    const districtName = locations.districts.find(d => d.code == address.district)?.name || '';
+    const wardName = locations.wards.find(w => w.code == address.ward)?.name || '';
     const fullShippingAddress = `${address.detail}, ${wardName}, ${districtName}, ${provinceName}`;
-
 
     if (!address.province || !address.detail || createFormData.details.length === 0) {
         toast.error("Vui lòng điền đủ địa chỉ và thêm ít nhất một sản phẩm.");
-        setIsCreating(false);
         return;
     }
 
+    setIsCreating(true);
+    const toastId = toast.loading('Đang tạo đơn hàng...');
+
     const payload = {
-        ...createFormData,
+        customer_name: createFormData.customer_name,
+        customer_email: createFormData.customer_email,
+        customer_phone: createFormData.customer_phone,
+        note: createFormData.note,
+        payment_method: createFormData.payment_method,
         shipping_fee: parseFloat(createFormData.shipping_fee) || 0,
         subtotal: totals.subtotal,
         total_amount: totals.totalAmount,
@@ -224,25 +228,20 @@ export default function AdminOrders() {
             product_id: d.product_id,
             quantity: d.quantity,
             price: d.price,
-            variant: d.variant,
+            variant: d.variant || null,
         }))
     };
 
-    // Hiển thị loading toast
-    const toastId = toast.loading('Đang tạo đơn hàng...');
-
     try {
       await createOrder(payload);
-      
       toast.success('Tạo đơn hàng thành công!', { id: toastId });
       setShowCreateModal(false);
       setCurrentPage(1);
       fetchOrdersAndProducts(); 
-
     } catch (error) {
       const errors = error.response?.data?.errors || {};
       setCreateErrors(errors);
-      const msg = error.response?.data?.message || 'Có lỗi xảy ra khi tạo đơn.';
+      const msg = error.response?.data?.message || 'Lỗi server (500). Vui lòng kiểm tra lại dữ liệu.';
       toast.error(msg, { id: toastId });
     } finally {
       setIsCreating(false);
@@ -272,11 +271,9 @@ export default function AdminOrders() {
 
     try {
       await updateOrderStatus(currentOrder.id, newStatus); 
-
       toast.success('Cập nhật trạng thái thành công!', { id: toastId });
       setShowDetailModal(false);
       fetchOrdersAndProducts(); 
-
     } catch (error) {
       const msg = error.response?.data?.message || 'Cập nhật trạng thái thất bại.';
       toast.error(msg, { id: toastId });
@@ -289,31 +286,21 @@ export default function AdminOrders() {
   const handleDeleteOrder = async (orderId) => {
     Swal.fire({
       title: 'Xác nhận xóa?',
-      text: "Bạn có chắc chắn muốn xóa mềm đơn hàng này?",
+      text: "Bạn có chắc chắn muốn xóa đơn hàng này?",
       icon: 'warning',
       showCancelButton: true,
-      confirmButtonColor: '#d33',
-      cancelButtonColor: '#3085d6',
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#6b7280',
       confirmButtonText: 'Xóa ngay',
       cancelButtonText: 'Hủy'
     }).then(async (result) => {
       if (result.isConfirmed) {
         try {
           await deleteOrder(orderId); 
-          
-          Swal.fire(
-            'Đã xóa!',
-            'Đơn hàng đã được xóa thành công.',
-            'success'
-          );
-          
+          Swal.fire('Đã xóa!', 'Đơn hàng đã được xóa thành công.', 'success');
           fetchOrdersAndProducts();
         } catch (error) { 
-          Swal.fire(
-            'Lỗi!',
-            'Không thể xóa đơn hàng này.',
-            'error'
-          );
+          Swal.fire('Lỗi!', 'Không thể xóa đơn hàng này.', 'error');
         }
       }
     });
@@ -322,274 +309,270 @@ export default function AdminOrders() {
 
   // Hàm render bảng đơn hàng
   const OrderTable = ({ data, onView, onDelete }) => (
-    <table className="w-full text-left">
-      <thead className="bg-gray-50 text-xs uppercase font-bold text-gray-700">
-        <tr>
-          <th className="p-4">ID</th>
-          <th className="p-4">Khách hàng</th>
-          <th className="p-4">Tổng tiền</th>
-          <th className="p-4">Phương thức</th>
-          <th className="p-4">Trạng thái</th>
-          <th className="p-4">Ngày đặt</th>
-          <th className="p-4 text-center">Action</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-gray-100 text-sm">
-        {data.map(order => {
-            const statusInfo = STATUS_OPTIONS.find(s => s.code === order.status_code);
-            const statusColor = statusInfo ? `bg-${statusInfo.color}-100 text-${statusInfo.color}-800` : 'bg-gray-100 text-gray-800';
+    <div className="overflow-x-auto">
+      <table className="w-full text-left border-collapse">
+        <thead className="bg-gray-50/80 text-[10px] uppercase font-bold tracking-wider text-gray-500 border-b">
+          <tr>
+            <th className="p-4">Mã đơn</th>
+            <th className="p-4">Khách hàng</th>
+            <th className="p-4">Tổng tiền</th>
+            <th className="p-4">Phương thức</th>
+            <th className="p-4 text-center">Trạng thái</th>
+            <th className="p-4 text-right">Thao tác</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y text-sm">
+          {data.map(order => {
+              const statusInfo = STATUS_OPTIONS.find(s => s.code === order.status_code);
+              const colorBase = statusInfo?.color || 'gray';
+              
+              const statusClasses = {
+                blue: 'bg-blue-50 text-blue-700 border-blue-200',
+                yellow: 'bg-amber-50 text-amber-700 border-amber-200',
+                indigo: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+                green: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                red: 'bg-rose-50 text-rose-700 border-rose-200',
+                gray: 'bg-gray-50 text-gray-700 border-gray-200'
+              };
 
-            return (
-                <tr key={order.id} className="hover:bg-gray-50">
-                    <td className="p-4 font-mono">{order.id}</td>
-                    <td className="p-4">
-                        <p className="font-bold">{order.customer_name}</p>
-                        <p className="text-xs text-gray-500">{order.user_info}</p>
-                    </td>
-                    <td className="p-4 font-bold text-red-600">{formatCurrency(order.total_amount)}</td>
-                    <td className="p-4">{order.payment_method}</td>
-                    <td className="p-4">
-                        <span className={`text-xs font-bold px-2 py-1 rounded-full ${statusColor}`}>
-                            {order.status_name}
-                        </span>
-                    </td>
-                    <td className="p-4 text-gray-500 text-xs">{order.created_at}</td>
-                    <td className="p-4 text-center whitespace-nowrap">
-                        <button onClick={() => onView(order.id)} className="text-blue-600 font-bold mr-3 hover:bg-blue-50 p-2 rounded transition">Chi tiết</button>
-                        <button onClick={() => onDelete(order.id)} className="text-red-600 font-bold hover:bg-red-50 p-2 rounded transition">Xóa</button>
-                    </td>
-                </tr>
-            );
-        })}
-      </tbody>
-    </table>
+              return (
+                  <tr key={order.id} className="hover:bg-blue-50/30 transition-colors group">
+                      <td className="p-4 font-mono text-gray-500 font-medium">#{order.id}</td>
+                      <td className="p-4">
+                          <div className="flex flex-col">
+                            <span className="font-semibold text-gray-800">{order.customer_name}</span>
+                            <span className="text-[11px] text-gray-400">{order.user_info}</span>
+                          </div>
+                      </td>
+                      <td className="p-4 font-bold text-indigo-600">{formatCurrency(order.total_amount)}</td>
+                      <td className="p-4 text-gray-600 font-medium">{order.payment_method}</td>
+                      <td className="p-4 text-center">
+                          <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase border shadow-sm ${statusClasses[colorBase]}`}>
+                              {order.status_name}
+                          </span>
+                      </td>
+                      <td className="p-4 text-right whitespace-nowrap space-x-2">
+                          <button onClick={() => onView(order.id)} className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg font-bold text-xs hover:bg-blue-600 hover:text-white transition-all shadow-sm">Chi tiết</button>
+                          <button onClick={() => onDelete(order.id)} className="px-3 py-1.5 bg-rose-50 text-rose-600 rounded-lg font-bold text-xs hover:bg-rose-600 hover:text-white transition-all shadow-sm">Xóa</button>
+                      </td>
+                  </tr>
+              );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 
 
   if (loading) return (
-      <div className="p-10 text-center flex flex-col items-center justify-center h-screen text-gray-500">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mb-2"></div>
-          Đang tải dữ liệu...
+      <div className="flex flex-col items-center justify-center h-screen bg-gray-50">
+          <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
+          <p className="text-gray-500 font-bold text-xs uppercase tracking-widest">Đang tải dữ liệu đơn hàng...</p>
       </div>
   );
 
   return (
-    <div>
-      {/* 2. CẤU HÌNH TOASTER */}
-      <Toaster 
-        position="top-right" 
-        reverseOrder={false}
-        toastOptions={{
-            style: {
-              zIndex: 9999,
-            },
-        }}
-      />
+    <div className="p-6 bg-gray-50 min-h-screen font-sans">
+      <Toaster position="top-right" reverseOrder={false} />
 
-      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 border-b pb-4">
-        <h2 className="text-2xl font-bold text-gray-800 uppercase">Quản lý Đơn hàng</h2>
-        <button onClick={handleOpenCreate} className="bg-green-600 text-white px-4 py-2 rounded font-bold hover:bg-green-700 shadow flex items-center gap-2">
-          <span>+</span> Tạo Đơn hàng mới (Admin)
+      {/* HEADER SECTION */}
+      <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+        <div>
+          <h2 className="text-2xl font-black text-gray-800 tracking-tight uppercase">Quản lý Đơn hàng</h2>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+            <span className="text-gray-400 text-xs font-medium uppercase tracking-wider italic">Real-time Order Monitoring</span>
+          </div>
+        </div>
+        <button onClick={handleOpenCreate} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-indigo-100 transition-all active:scale-95 flex items-center gap-2">
+          <span className="text-xl">+</span> <span className="uppercase text-sm tracking-wide">Tạo Đơn Admin</span>
         </button>
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-x-auto border-l-4 border-indigo-500 min-h-[200px]">
+      {/* MAIN TABLE */}
+      <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden min-h-[400px]">
         {allOrders.length === 0 && !loading ? (
-              <div className="p-10 text-center text-gray-500 italic flex flex-col items-center">
-                  <span className="text-4xl mb-2">🛒</span>
-                  <p>Không có đơn hàng nào.</p>
+              <div className="p-20 text-center flex flex-col items-center">
+                  <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4">
+                    <span className="text-4xl grayscale opacity-30">🛒</span>
+                  </div>
+                  <p className="text-gray-400 font-bold uppercase text-xs tracking-widest">Không có dữ liệu đơn hàng</p>
               </div>
         ) : (
             <OrderTable data={paginatedOrders} onView={handleViewDetails} onDelete={handleDeleteOrder} />
         )}
       </div>
       
-      {/* KHU VỰC PHÂN TRANG */}
-      <Pagination 
-          currentPage={currentPage}
-          totalPages={totalPages}
-          onPageChange={setCurrentPage}
-      />
+      {/* PAGINATION */}
+      <div className="mt-8 flex justify-center">
+        <Pagination 
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+        />
+      </div>
 
 
-      {/* --- MODAL TẠO ĐƠN HÀNG MỚI (FIXED WIDTH) --- */}
+      {/* --- MODAL TẠO ĐƠN HÀNG MỚI --- */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-[fadeIn_0.2s]">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl overflow-hidden max-h-[95vh] overflow-y-auto transform transition-all scale-100">
-            <div className="bg-green-700 text-white px-6 py-4 flex justify-between items-center sticky top-0 z-10">
-              <h3 className="font-bold text-lg uppercase">Tạo Đơn hàng mới từ Admin</h3>
-              <button onClick={() => setShowCreateModal(false)} className="text-2xl hover:text-gray-200 transition">&times;</button>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-[fadeIn_0.2s]">
+          <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-5xl overflow-hidden max-h-[92vh] flex flex-col scale-100 transition-all border border-white/20">
+            <div className="bg-slate-900 text-white px-8 py-6 flex justify-between items-center shrink-0">
+              <div>
+                <h3 className="font-black text-xl tracking-tight uppercase italic">Khởi tạo vận đơn Admin</h3>
+                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-[0.2em] mt-1 opacity-70">Manual Order Creation System</p>
+              </div>
+              <button onClick={() => setShowCreateModal(false)} className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-2xl transition-all">&times;</button>
             </div>
             
-            <form onSubmit={handleCreateOrderSubmit}>
-                {/* FIX: Bố cục lưới 2 cột */}
-                <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <form onSubmit={handleCreateOrderSubmit} className="overflow-y-auto flex-1 p-8">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
                     
                     {/* Cột 1: Thông tin Khách hàng */}
-                    <div className="md:col-span-1 border-r md:pr-6">
-                        <h4 className="font-bold text-gray-800 mb-4 border-b pb-2">Thông tin Khách hàng</h4>
-                        <div className="space-y-3">
-                            <div>
-                                <label className="block text-sm font-bold mb-1">Tên Khách hàng (*)</label>
-                                <input type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500 outline-none transition" required 
+                    <div className="space-y-6">
+                        <div className="flex items-center gap-3 border-l-4 border-emerald-500 pl-4 py-1">
+                          <h4 className="font-black text-gray-800 uppercase text-xs tracking-widest">1. Thông tin khách hàng</h4>
+                        </div>
+                        
+                        <div className="grid gap-4 bg-gray-50/50 p-6 rounded-3xl border border-gray-100 shadow-inner">
+                            <div className="grid gap-1">
+                                <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Họ tên người mua *</label>
+                                <input type="text" className="w-full bg-white border-0 p-3 rounded-2xl shadow-sm focus:ring-2 focus:ring-emerald-500 outline-none transition text-sm font-semibold" required 
                                     value={createFormData.customer_name} onChange={(e) => setCreateFormData({...createFormData, customer_name: e.target.value})} />
-                                {createErrors.customer_name && <p className="text-red-500 text-xs mt-1">{createErrors.customer_name[0]}</p>}
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold mb-1">Email (Tùy chọn)</label>
-                                <input type="email" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500 outline-none transition" 
-                                    value={createFormData.customer_email} onChange={(e) => setCreateFormData({...createFormData, customer_email: e.target.value})} />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold mb-1">Điện thoại (*)</label>
-                                <input type="text" className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500 outline-none transition" required 
-                                    value={createFormData.customer_phone} onChange={(e) => setCreateFormData({...createFormData, customer_phone: e.target.value})} />
-                                {createErrors.customer_phone && <p className="text-red-500 text-xs mt-1">{createErrors.customer_phone[0]}</p>}
-                            </div>
-                            
-                            {/* CASCADING DROPDOWNS ĐỊA CHỈ */}
-                            <h5 className="text-sm font-bold pt-2">Địa chỉ giao hàng (*)</h5>
-                            <div className="grid grid-cols-3 gap-2">
-                                <select className="border border-gray-300 p-2 rounded text-sm focus:border-black focus:ring-1 focus:ring-black outline-none" value={address.province} onChange={handleProvinceChange}>
-                                    <option value="">Tỉnh/Thành</option>
-                                    {locations.provinces.map(p => <option key={p.code} value={p.code}>{p.name}</option>)}
-                                </select>
-                                <select className="border border-gray-300 p-2 rounded text-sm focus:border-black focus:ring-1 focus:ring-black outline-none" value={address.district} onChange={handleDistrictChange} disabled={!address.province}>
-                                    <option value="">Quận/Huyện</option>
-                                    {locations.districts.map(d => <option key={d.code} value={d.code}>{d.name}</option>)}
-                                </select>
-                                <select className="border border-gray-300 p-2 rounded text-sm focus:border-black focus:ring-1 focus:ring-black outline-none" value={address.ward} onChange={(e) => setAddress({...address, ward: e.target.value})} disabled={!address.district}>
-                                    <option value="">Phường/Xã</option>
-                                    {locations.wards.map(w => <option key={w.code} value={w.code}>{w.name}</option>)}
-                                </select>
-                            </div>
-                            {/* Địa chỉ cụ thể */}
-                            <div>
-                                <label className="block text-xs font-bold text-gray-700 mb-1 uppercase">Địa chỉ cụ thể *</label>
-                                <input 
-                                    type="text" 
-                                    className="w-full border p-2 rounded text-sm focus:ring-2 focus:ring-green-500 outline-none transition"
-                                    placeholder="Số nhà, tên đường..."
-                                    value={address.detail}
-                                    onChange={(e) => setAddress({...address, detail: e.target.value})}
-                                />
+                                {createErrors.customer_name && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1 lowercase">{createErrors.customer_name[0]}</p>}
                             </div>
 
-                            <div>
-                                <label className="block text-sm font-bold mb-1">Ghi chú</label>
-                                <textarea className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500 outline-none transition" rows="2"
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="grid gap-1">
+                                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Email</label>
+                                  <input type="email" className="w-full bg-white border-0 p-3 rounded-2xl shadow-sm focus:ring-2 focus:ring-emerald-500 outline-none text-sm font-semibold" 
+                                      value={createFormData.customer_email} onChange={(e) => setCreateFormData({...createFormData, customer_email: e.target.value})} />
+                              </div>
+                              <div className="grid gap-1">
+                                  <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Số điện thoại *</label>
+                                  <input type="text" className="w-full bg-white border-0 p-3 rounded-2xl shadow-sm focus:ring-2 focus:ring-emerald-500 outline-none text-sm font-semibold" required 
+                                      value={createFormData.customer_phone} onChange={(e) => setCreateFormData({...createFormData, customer_phone: e.target.value})} />
+                                  {createErrors.customer_phone && <p className="text-rose-500 text-[10px] font-bold mt-1 ml-1 lowercase">{createErrors.customer_phone[0]}</p>}
+                              </div>
+                            </div>
+                            
+                            <div className="grid gap-1 mt-2">
+                                <label className="text-[10px] font-black text-gray-400 uppercase ml-1 italic border-b border-gray-200 pb-1 mb-2">Địa chỉ giao hàng (*)</label>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                    <select className="bg-white border-0 p-3 rounded-2xl shadow-sm text-xs font-bold outline-none focus:ring-2 focus:ring-emerald-500" value={address.province} onChange={handleProvinceChange}>
+                                        <option value="">Tỉnh/Thành</option>
+                                        {locations.provinces.map(p => <option key={p.code} value={p.code}>{p.name}</option>)}
+                                    </select>
+                                    <select className="bg-white border-0 p-3 rounded-2xl shadow-sm text-xs font-bold outline-none focus:ring-2 focus:ring-emerald-500" value={address.district} onChange={handleDistrictChange} disabled={!address.province}>
+                                        <option value="">Quận/Huyện</option>
+                                        {locations.districts.map(d => <option key={d.code} value={d.code}>{d.name}</option>)}
+                                    </select>
+                                    <select className="bg-white border-0 p-3 rounded-2xl shadow-sm text-xs font-bold outline-none focus:ring-2 focus:ring-emerald-500" value={address.ward} onChange={(e) => setAddress({...address, ward: e.target.value})} disabled={!address.district}>
+                                        <option value="">Phường/Xã</option>
+                                        {locations.wards.map(w => <option key={w.code} value={w.code}>{w.name}</option>)}
+                                    </select>
+                                </div>
+                                <div className="mt-2">
+                                    <input 
+                                        type="text" 
+                                        className="w-full bg-white border-0 p-3 rounded-2xl shadow-sm focus:ring-2 focus:ring-emerald-500 outline-none text-sm font-semibold"
+                                        placeholder="Số nhà, tên đường cụ thể..."
+                                        value={address.detail}
+                                        onChange={(e) => setAddress({...address, detail: e.target.value})}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid gap-1">
+                                <label className="text-[10px] font-black text-gray-400 uppercase ml-1">Ghi chú vận chuyển</label>
+                                <textarea className="w-full bg-white border-0 p-3 rounded-2xl shadow-sm focus:ring-2 focus:ring-emerald-500 outline-none text-sm font-semibold h-20"
                                     value={createFormData.note} onChange={(e) => setCreateFormData({...createFormData, note: e.target.value})}></textarea>
                             </div>
                         </div>
                     </div>
 
                     {/* Cột 2: Chi tiết Sản phẩm & Tổng kết */}
-                    <div className="md:col-span-1">
-                        <h4 className="font-bold text-gray-800 mb-4 border-b pb-2">Sản phẩm & Tổng kết</h4>
-                        
-                        {/* Khu vực Chọn Sản phẩm */}
-                        <div className="flex gap-2 items-end mb-4 bg-gray-50 p-3 rounded border">
-                            <div className="flex-1">
-                                <label className="block text-xs font-bold mb-1">Chọn Sản phẩm</label>
-                                <select className="w-full border p-2 rounded focus:ring-1 focus:ring-green-500 outline-none" value={selectedProductId} onChange={handleProductSelect}>
-                                    <option value="">-- Chọn sản phẩm --</option>
-                                    {products.map(p => (
-                                        <option key={p.id} value={p.id}>{p.name} ({formatCurrency(p.price_buy || 0)})</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div className="w-24">
-                                <label className="block text-xs font-bold mb-1">Giá bán</label>
-                                <input type="number" step="1000" min="0" className="w-full border p-2 rounded focus:ring-1 focus:ring-green-500 outline-none"
-                                    value={selectedPrice} onChange={(e) => setSelectedPrice(parseFloat(e.target.value) || 0)}
-                                    disabled={!selectedProductId} />
-                            </div>
-                            <div className="w-20">
-                                <label className="block text-xs font-bold mb-1">SL</label>
-                                <input type="number" min="1" className="w-full border p-2 rounded focus:ring-1 focus:ring-green-500 outline-none"
-                                    value={selectedQuantity} onChange={(e) => setSelectedQuantity(parseInt(e.target.value) || 1)}
-                                    disabled={!selectedProductId} />
-                            </div>
-                            <button type="button" onClick={handleAddProductToOrder} disabled={!selectedProductId || selectedQuantity <= 0} className="bg-indigo-600 text-white p-2 rounded h-[42px] hover:bg-indigo-700 disabled:bg-indigo-300 transition shadow">
-                                Thêm
-                            </button>
-                        </div>
-                        {createErrors['details'] && <p className="text-red-500 text-sm italic mb-3">{createErrors['details'][0]}</p>}
-
-                        {/* Bảng Chi tiết Đơn hàng (Giỏ hàng tạm) */}
-                        <div className="max-h-48 overflow-y-auto border rounded mb-4 custom-scrollbar">
-                            <table className="w-full text-sm">
-                                <thead className="bg-gray-200 sticky top-0">
-                                    <tr>
-                                        <th className="p-2 text-left w-1/2">Sản phẩm</th>
-                                        <th className="p-2 text-right">Giá</th>
-                                        <th className="p-2 text-right">SL</th>
-                                        <th className="p-2 text-right">Tổng</th>
-                                        <th className="p-2 text-center w-16"></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {createFormData.details.map((item, index) => (
-                                        <tr key={index} className="border-b hover:bg-gray-50">
-                                            <td className="p-2 font-semibold">{item.product_name}</td>
-                                            <td className="p-2 text-right text-sm">{formatCurrency(item.price)}</td>
-                                            <td className="p-2 text-right">{item.quantity}</td>
-                                            <td className="p-2 text-right font-bold text-red-600">{formatCurrency(item.price * item.quantity)}</td>
-                                            <td className="p-2 text-center">
-                                                <button type="button" onClick={() => handleRemoveProductFromOrder(index)} className="text-red-500 hover:text-red-700 font-bold px-2">
-                                                    &times;
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                    {createFormData.details.length === 0 && (
-                                        <tr><td colSpan="5" className="text-center p-4 text-gray-500 italic">Chưa có sản phẩm nào được thêm.</td></tr>
-                                    )}
-                                </tbody>
-                            </table>
+                    <div className="space-y-6">
+                        <div className="flex items-center gap-3 border-l-4 border-indigo-500 pl-4 py-1">
+                          <h4 className="font-black text-gray-800 uppercase text-xs tracking-widest">2. Giỏ hàng sản phẩm</h4>
                         </div>
                         
-                        {/* Tóm tắt Tài chính */}
-                        <div className="p-3 border rounded bg-gray-100 space-y-2">
-                            <div className="flex justify-between items-center">
-                                <span className="font-semibold">Tổng tiền hàng:</span>
-                                <span className="font-bold">{formatCurrency(totals.subtotal)}</span>
+                        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden flex flex-col">
+                            <div className="p-5 bg-indigo-50/50 flex flex-wrap sm:flex-nowrap gap-2 items-end border-b border-indigo-100">
+                                <div className="flex-1 min-w-[200px]">
+                                    <label className="text-[9px] font-black text-indigo-400 uppercase ml-1">Chọn sản phẩm</label>
+                                    <select className="w-full border-0 bg-white p-2.5 rounded-xl shadow-sm text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500" value={selectedProductId} onChange={handleProductSelect}>
+                                        <option value="">-- Tìm kiếm --</option>
+                                        {products.map(p => (
+                                            <option key={p.id} value={p.id}>{p.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="w-16">
+                                    <label className="text-[9px] font-black text-indigo-400 uppercase ml-1">SL</label>
+                                    <input type="number" min="1" className="w-full border-0 bg-white p-2.5 rounded-xl shadow-sm text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+                                        value={selectedQuantity} onChange={(e) => setSelectedQuantity(parseInt(e.target.value) || 1)}
+                                        disabled={!selectedProductId} />
+                                </div>
+                                <button type="button" onClick={handleAddProductToOrder} disabled={!selectedProductId} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-black text-[10px] transition shadow-md shadow-indigo-100 active:scale-95 uppercase">Thêm</button>
                             </div>
-                            <div className="flex justify-between items-center">
-                                <span className="font-semibold">Phí vận chuyển:</span>
-                                <input type="number" min="0" className="w-32 border p-1 rounded text-right font-bold text-sm focus:ring-1 focus:ring-green-500 outline-none"
-                                    value={createFormData.shipping_fee} 
-                                    onChange={(e) => setCreateFormData({...createFormData, shipping_fee: parseFloat(e.target.value) || 0})}
-                                />
-                                
+                            
+                            <div className="max-h-48 overflow-y-auto p-4 space-y-2 custom-scrollbar bg-gray-50/30 shadow-inner">
+                                {createFormData.details.length === 0 ? (
+                                    <div className="py-10 text-center opacity-20 font-black italic uppercase text-3xl select-none">Cart is empty</div>
+                                ) : createFormData.details.map((item, index) => (
+                                    <div key={index} className="flex justify-between items-center bg-white p-4 rounded-2xl border border-gray-100 shadow-sm hover:border-indigo-200 transition-all group">
+                                        <div className="flex flex-col">
+                                          <span className="font-bold text-gray-800 text-xs">{item.product_name}</span>
+                                          <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">{item.quantity} × {formatCurrency(item.price)}</span>
+                                        </div>
+                                        <div className="flex items-center gap-4">
+                                            <span className="font-black text-indigo-600 text-xs italic">{formatCurrency(item.price * item.quantity)}</span>
+                                            <button type="button" onClick={() => handleRemoveProductFromOrder(index)} className="w-7 h-7 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center font-bold text-lg hover:bg-rose-500 hover:text-white transition-all shadow-sm">&times;</button>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
-                            <div className="flex justify-between items-center pt-2 border-t border-gray-300">
-                                <span className="text-lg font-extrabold">TỔNG THANH TOÁN:</span>
-                                <span className="text-xl font-extrabold text-red-600">{formatCurrency(totals.totalAmount)}</span>
+                            
+                            {/* Financial Summary */}
+                            <div className="p-6 bg-slate-900 text-white space-y-4">
+                                <div className="flex justify-between items-center border-b border-white/5 pb-3">
+                                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Tổng tiền hàng</span>
+                                    <span className="font-bold text-sm">{formatCurrency(totals.subtotal)}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Phí vận chuyển (VND)</span>
+                                    <input type="number" min="0" className="w-24 bg-white/10 border-0 p-1.5 rounded-lg text-right font-black text-emerald-400 focus:ring-1 focus:ring-emerald-500 outline-none transition text-sm"
+                                        value={createFormData.shipping_fee} 
+                                        onChange={(e) => setCreateFormData({...createFormData, shipping_fee: parseFloat(e.target.value) || 0})}
+                                    />
+                                </div>
+                                <div className="flex justify-between items-center pt-2">
+                                    <span className="text-xs font-black italic text-gray-400 uppercase tracking-tighter underline underline-offset-8 decoration-white/20">Tổng thanh toán:</span>
+                                    <span className="text-3xl font-black text-white drop-shadow-md">{formatCurrency(totals.totalAmount)}</span>
+                                </div>
                             </div>
-                            {createErrors.shipping_fee && <p className="text-red-500 text-xs mt-1">{createErrors.shipping_fee[0]}</p>}
                         </div>
 
-                        <div className="mt-4 space-y-3">
-                                <label className="block text-sm font-bold mb-1">Phương thức Thanh toán</label>
-                            <select className="w-full border p-2 rounded focus:ring-2 focus:ring-green-500 outline-none"
-                                value={createFormData.payment_method} 
-                                onChange={(e) => setCreateFormData({...createFormData, payment_method: e.target.value})}
-                            >
-                                <option value="COD">Thanh toán khi nhận hàng (COD)</option>
-                                <option value="BANKING">Chuyển khoản Ngân hàng</option>
-                                <option value="MOMO">Ví Momo</option>
-                            </select>
-                            {createErrors.payment_method && <p className="text-red-500 text-xs mt-1">{createErrors.payment_method[0]}</p>}
+                        <div className="bg-indigo-50 p-4 rounded-3xl flex items-center gap-4 border border-indigo-100">
+                          <label className="text-[10px] font-black text-indigo-400 uppercase ml-2 tracking-widest shrink-0">Thanh toán:</label>
+                          <select className="flex-1 bg-white border-0 p-2.5 rounded-xl text-xs font-black shadow-sm outline-none focus:ring-2 focus:ring-indigo-500 text-indigo-700"
+                              value={createFormData.payment_method} 
+                              onChange={(e) => setCreateFormData({...createFormData, payment_method: e.target.value})}
+                          >
+                              <option value="COD">💵 TIỀN MẶT (COD)</option>
+                              <option value="BANKING">🏦 CHUYỂN KHOẢN</option>
+                              <option value="MOMO">📱 VÍ MOMO</option>
+                          </select>
                         </div>
                     </div>
                 </div>
 
-                {/* Footer Buttons */}
-                <div className="flex justify-end gap-3 px-6 py-4 border-t sticky bottom-0 bg-white shadow-inner">
-                    <button type="button" onClick={() => setShowCreateModal(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded font-bold transition">Hủy</button>
-                    <button type="submit" disabled={isCreating} className="px-6 py-2 bg-green-600 text-white rounded font-bold hover:bg-green-700 shadow disabled:bg-green-400 transition">
-                        {isCreating ? 'Đang tạo...' : 'Xác nhận Tạo Đơn hàng'}
+                {/* Submit Action */}
+                <div className="flex justify-end gap-3 px-8 py-6 border-t bg-gray-50/50">
+                    <button type="button" onClick={() => setShowCreateModal(false)} className="px-6 py-3 text-gray-500 hover:bg-gray-100 rounded-2xl font-black text-xs uppercase transition tracking-widest">Hủy</button>
+                    <button type="submit" disabled={isCreating} className="px-10 py-3 bg-emerald-500 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-lg shadow-emerald-100 hover:bg-emerald-600 hover:shadow-emerald-200 transition-all active:scale-95 disabled:bg-gray-300">
+                        {isCreating ? 'Creating...' : 'Xác nhận tạo đơn'}
                     </button>
                 </div>
             </form>
@@ -597,87 +580,116 @@ export default function AdminOrders() {
         </div>
       )}
 
-      {/* --- MODAL CHI TIẾT ĐƠN HÀNG (Giữ nguyên) --- */}
+      {/* --- MODAL CHI TIẾT ĐƠN HÀNG (LUXURY STYLE) --- */}
       {showDetailModal && currentOrder && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-[fadeIn_0.2s]">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl overflow-hidden max-h-[90vh] overflow-y-auto transform transition-all scale-100">
-            <div className="bg-indigo-800 text-white px-6 py-4 flex justify-between items-center sticky top-0 z-10">
-              <h3 className="font-bold text-lg uppercase">Chi tiết đơn hàng #{currentOrder.id}</h3>
-              <button onClick={() => setShowDetailModal(false)} className="text-2xl hover:text-gray-300 transition">&times;</button>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-[fadeIn_0.2s]">
+          <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-4xl overflow-hidden max-h-[90vh] flex flex-col scale-100 border border-slate-100 transition-all">
+            <div className="bg-slate-900 text-white p-8 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center font-black italic shadow-lg shadow-indigo-600/30">#</div>
+                <div>
+                  <h3 className="font-black text-xl tracking-tighter uppercase italic">Vận đơn chi tiết</h3>
+                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-[0.2em]">Order ID: {currentOrder.id} • {currentOrder.created_at}</p>
+                </div>
+              </div>
+              <button onClick={() => setShowDetailModal(false)} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-3xl transition-all">&times;</button>
             </div>
             
-            <div className="p-6">
+            <div className="p-8 overflow-y-auto flex-1 space-y-8">
                 
                 {/* THÔNG TIN KHÁCH HÀNG & TÀI CHÍNH */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 pb-4 border-b">
-                    <div>
-                        <p className="text-xs font-bold text-gray-500 uppercase">Khách hàng</p>
-                        <p className="font-semibold">{currentOrder.customer_name}</p>
-                        <p className="text-sm">{currentOrder.customer_phone}</p>
-                        <p className="text-xs text-gray-500">{currentOrder.customer_email}</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <div className="bg-gray-50 p-6 rounded-[2rem] border border-gray-100 relative group transition-all hover:bg-white hover:shadow-xl hover:shadow-gray-100">
+                        <span className="absolute -top-3 -left-3 bg-indigo-600 text-white px-4 py-1 rounded-xl text-[9px] font-black italic shadow-lg shadow-indigo-100 uppercase tracking-widest">Người nhận</span>
+                        <p className="font-black text-gray-800 text-base mb-1 mt-2">{currentOrder.customer_name}</p>
+                        <p className="text-indigo-600 font-bold text-xs">{currentOrder.customer_phone}</p>
+                        <p className="text-[11px] text-gray-400 font-medium lowercase tracking-tighter mt-1">{currentOrder.customer_email}</p>
                     </div>
-                    <div>
-                        <p className="text-xs font-bold text-gray-500 uppercase">Địa chỉ giao hàng</p>
-                        <p className="text-sm">{currentOrder.shipping_address}</p>
-                        <p className="text-xs text-gray-500 mt-2">Ghi chú: {currentOrder.note || 'Không'}</p>
+                    <div className="bg-gray-50 p-6 rounded-[2rem] border border-gray-100 relative group transition-all hover:bg-white hover:shadow-xl hover:shadow-gray-100">
+                        <span className="absolute -top-3 -left-3 bg-emerald-500 text-white px-4 py-1 rounded-xl text-[9px] font-black italic shadow-lg shadow-emerald-100 uppercase tracking-widest">Địa chỉ</span>
+                        <p className="text-xs leading-relaxed text-gray-600 font-medium mt-2 italic">"{currentOrder.shipping_address}"</p>
+                        {currentOrder.note && <p className="text-[10px] text-amber-600 font-bold mt-3 bg-amber-50 p-2 rounded-xl border border-amber-100">💡 Ghi chú: {currentOrder.note}</p>}
                     </div>
-                    <div className="text-right">
-                        <p className="text-xs font-bold text-gray-500 uppercase">Tổng thanh toán</p>
-                        <p className="text-2xl font-extrabold text-red-600">{formatCurrency(currentOrder.total_amount)}</p>
-                        <p className="text-xs text-gray-500">Phí ship: {formatCurrency(currentOrder.shipping_fee)}</p>
+                    <div className="bg-indigo-600 p-8 rounded-[2.5rem] text-white flex flex-col justify-center relative overflow-hidden shadow-2xl shadow-indigo-200">
+                        <div className="absolute top-0 right-0 p-10 opacity-10 font-black text-8xl italic select-none">$</div>
+                        <p className="text-indigo-200 text-[10px] font-black uppercase tracking-[0.2em] mb-2">Giá trị đơn hàng</p>
+                        <p className="text-4xl font-black italic drop-shadow-md">{formatCurrency(currentOrder.total_amount)}</p>
+                        <div className="mt-4 flex gap-2">
+                           <span className="bg-white/20 px-2 py-1 rounded-lg text-[9px] font-bold uppercase">Ship: {formatCurrency(currentOrder.shipping_fee)}</span>
+                        </div>
                     </div>
                 </div>
 
                 {/* BẢNG CHI TIẾT SẢN PHẨM */}
-                <h4 className="font-bold text-gray-800 mb-3">Sản phẩm đã đặt ({currentOrder.details.length})</h4>
-                <table className="w-full text-left mb-6 border rounded overflow-hidden">
-                    <thead className="bg-gray-100 text-xs uppercase font-bold text-gray-600">
-                        <tr>
-                            <th className="p-3 border-b">Sản phẩm</th>
-                            <th className="p-3 border-b text-right">Giá / SL</th>
-                            <th className="p-3 border-b text-right">Tổng</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {currentOrder.details.map(detail => (
-                            <tr key={detail.id} className="border-b hover:bg-gray-50 last:border-b-0">
-                                <td className="p-3">
-                                    <p className="font-semibold">{detail.product_name}</p>
-                                    <p className="text-xs text-gray-500">Variant: {detail.variant ? JSON.parse(detail.variant).Size : 'N/A'}</p>
-                                </td>
-                                <td className="p-3 text-right text-sm">
-                                    {formatCurrency(detail.price)} x {detail.quantity}
-                                </td>
-                                <td className="p-3 text-right font-bold text-red-600">
-                                    {formatCurrency(detail.total)}
-                                </td>
+                <div>
+                  <h4 className="font-black text-gray-800 mb-4 text-xs uppercase tracking-widest border-l-4 border-indigo-500 pl-4">Sản phẩm đã đặt ({currentOrder.details.length})</h4>
+                  <div className="border border-gray-100 rounded-3xl overflow-hidden shadow-sm">
+                    <table className="w-full text-left">
+                        <thead className="bg-gray-50 text-[10px] uppercase font-black tracking-widest text-gray-400">
+                            <tr>
+                                <th className="p-4">Mặt hàng</th>
+                                <th className="p-4 text-center">Giá / SL</th>
+                                <th className="p-4 text-right">Tổng</th>
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                            {currentOrder.details.map(detail => (
+                                <tr key={detail.id} className="hover:bg-gray-50/50 transition-colors">
+                                    <td className="p-4">
+                                        <p className="font-bold text-gray-800 text-sm">{detail.product_name}</p>
+                                        {detail.variant && <p className="text-[10px] text-gray-400 italic">Phiên bản: {detail.variant}</p>}
+                                    </td>
+                                    <td className="p-4 text-center">
+                                        <span className="text-xs font-bold text-gray-500">{formatCurrency(detail.price)}</span>
+                                        <span className="mx-2 text-gray-300">×</span>
+                                        <span className="text-xs font-black text-gray-800">{detail.quantity}</span>
+                                    </td>
+                                    <td className="p-4 text-right">
+                                        <span className="font-black text-indigo-600 text-xs italic">{formatCurrency(detail.total)}</span>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                  </div>
+                </div>
                 
                 {/* KHU VỰC CẬP NHẬT TRẠNG THÁI */}
-                <form onSubmit={handleUpdateStatus} className="flex justify-end items-center gap-3 pt-4 border-t bg-gray-50 p-4 rounded-b-lg -m-6 mt-0">
-                    <label className="text-sm font-bold text-gray-700">Cập nhật trạng thái:</label>
-                    <select 
-                        className="border p-2 rounded w-48 focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
-                        value={newStatus}
-                        onChange={(e) => setNewStatus(e.target.value)}
-                        disabled={isUpdating}
-                    >
-                        {STATUS_OPTIONS.map(s => (
-                            <option key={s.code} value={s.code}>{s.name}</option>
-                        ))}
-                    </select>
-                    <button type="submit" disabled={isUpdating} className="px-6 py-2 bg-indigo-600 text-white rounded font-bold hover:bg-indigo-700 shadow disabled:bg-gray-400 transition">
-                        {isUpdating ? 'Đang cập nhật...' : 'Lưu Thay Đổi'}
-                    </button>
+                <form onSubmit={handleUpdateStatus} className="flex flex-col sm:flex-row justify-between items-center gap-6 bg-slate-900 p-6 rounded-[2.5rem] shadow-xl">
+                    <div className="flex items-center gap-4">
+                      <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></div>
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest italic leading-none">Chỉnh sửa trạng thái đơn hàng:</label>
+                    </div>
+                    <div className="flex w-full sm:w-auto gap-3">
+                      <select 
+                          className="border-0 bg-slate-800 text-white p-3 rounded-2xl w-full sm:w-60 text-xs font-black outline-none focus:ring-2 focus:ring-indigo-500"
+                          value={newStatus}
+                          onChange={(e) => setNewStatus(e.target.value)}
+                          disabled={isUpdating}
+                      >
+                          {STATUS_OPTIONS.map(s => (
+                              <option key={s.code} value={s.code} className="bg-slate-900">{s.name}</option>
+                          ))}
+                      </select>
+                      <button type="submit" disabled={isUpdating} className="px-8 py-3 bg-indigo-500 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-lg shadow-indigo-500/20 hover:bg-indigo-600 transition-all active:scale-95 disabled:bg-gray-700">
+                          {isUpdating ? 'Updating...' : 'Lưu'}
+                      </button>
+                    </div>
                 </form>
 
             </div>
           </div>
         </div>
       )}
+
+      {/* CUSTOM CSS FOR ANIMATIONS & SCROLLBAR */}
+      <style jsx global>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+      `}</style>
     </div>
   );
 }
