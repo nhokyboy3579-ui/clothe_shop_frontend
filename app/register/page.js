@@ -1,54 +1,46 @@
 'use client';
 import { useState } from 'react';
-import api from '@/services/axios';
 import Link from 'next/link';
-import Header from '@/components/Header';
 import { useRouter } from 'next/navigation';
-// Import toast
-import toast from 'react-hot-toast';
+import Header from '@/components/Header';
+import { AuthService } from '@/services/AuthService';
+import toast, { Toaster } from 'react-hot-toast';
 
 export default function Register() {
   const router = useRouter();
   const [formData, setFormData] = useState({
-    username: '',
-    email: '',
-    password: '',
-    password_confirmation: ''
+    username: '', email: '', password: '', password_confirmation: ''
   });
-  const [loading, setLoading] = useState(false); // Thêm trạng thái loading nút bấm
-
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true); // Bắt đầu xoay nút bấm
+    setLoading(true);
 
     try {
-      await api.post('/register', formData);
+      await AuthService.register(formData);
       
-      // THÔNG BÁO ĐẸP
       toast.success('Đăng ký thành công! Đang chuyển hướng...', {
         duration: 2000,
         style: { border: '1px solid #4caf50', padding: '16px', color: '#4caf50' },
       });
 
-      // Đợi 1.5s cho người dùng đọc thông báo rồi chuyển
-      setTimeout(() => {
-        router.push('/login');
-      }, 1500);
+      setTimeout(() => { router.push('/login'); }, 1500);
 
     } catch (err) {
-      // Hiển thị lỗi từ server hoặc lỗi chung
-      const msg = err.response?.data?.message || 'Đăng ký thất bại';
-      toast.error(msg);
-      
-      // Nếu có lỗi chi tiết từng trường (validate)
-      if (err.response?.data?.errors) {
-         Object.values(err.response.data.errors).forEach(errorArray => {
-             toast.error(errorArray[0]);
-         });
+      // XỬ LÝ LỖI 422: Trùng username, email hoặc lỗi xác thực
+      if (err.response && err.response.status === 422) {
+        const serverErrors = err.response.data.errors;
+        
+        // Duyệt qua từng trường lỗi để hiển thị câu tiếng Việt tương ứng
+        Object.keys(serverErrors).forEach((key) => {
+          toast.error(serverErrors[key][0], {
+            id: key, // Tránh hiện chồng nhiều thông báo cùng lúc
+            duration: 4000
+          });
+        });
+      } else {
+        toast.error(err.response?.data?.message || 'Đăng ký thất bại. Vui lòng thử lại!');
       }
     } finally {
       setLoading(false);
@@ -56,38 +48,29 @@ export default function Register() {
   };
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-white font-sans">
       <Header />
+      <Toaster position="top-center" />
+      
       <div className="flex items-center justify-center py-10 bg-gray-50">
-        <form onSubmit={handleSubmit} className="bg-white p-8 shadow-lg rounded-md w-full max-w-md">
-          <h2 className="text-2xl font-serif text-center mb-6 uppercase tracking-widest">Đăng Ký</h2>
+        <form onSubmit={handleSubmit} className="bg-white p-8 shadow-2xl rounded-[2rem] w-full max-w-md border border-gray-100">
+          <div className="text-center mb-8">
+            <h2 className="text-3xl font-serif italic font-bold text-slate-900 uppercase tracking-tighter">Đăng Ký</h2>
+          </div>
 
-          {/* Các input giữ nguyên như cũ, chỉ thay đổi phần Button */}
-          {['username', 'email', 'password', 'password_confirmation'].map((field, idx) => (
-             <div className="mb-4" key={idx}>
-               <label className="block text-sm font-bold mb-1 capitalize">
-                 {field === 'password_confirmation' ? 'Nhập lại mật khẩu' : field}
-               </label>
-               <input 
-                 name={field} 
-                 type={field.includes('password') ? 'password' : 'text'}
-                 onChange={handleChange} 
-                 className="w-full border p-2 rounded focus:border-black outline-none" 
-                 required 
-               />
-             </div>
-          ))}
+          <div className="space-y-4">
+            <input name="username" placeholder="TÊN ĐĂNG NHẬP" onChange={(e) => setFormData({...formData, username: e.target.value})} className="w-full bg-slate-50 p-4 rounded-2xl outline-none focus:ring-2 focus:ring-black font-sans text-sm" required />
+            <input name="email" type="email" placeholder="EMAIL" onChange={(e) => setFormData({...formData, email: e.target.value})} className="w-full bg-slate-50 p-4 rounded-2xl outline-none focus:ring-2 focus:ring-black font-sans text-sm" required />
+            <input name="password" type="password" placeholder="MẬT KHẨU" onChange={(e) => setFormData({...formData, password: e.target.value})} className="w-full bg-slate-50 p-4 rounded-2xl outline-none focus:ring-2 focus:ring-black font-sans text-sm" required />
+            <input name="password_confirmation" type="password" placeholder="XÁC NHẬN MẬT KHẨU" onChange={(e) => setFormData({...formData, password_confirmation: e.target.value})} className="w-full bg-slate-50 p-4 rounded-2xl outline-none focus:ring-2 focus:ring-black font-sans text-sm" required />
+          </div>
 
-          <button 
-            type="submit" 
-            disabled={loading}
-            className={`w-full bg-black text-white py-3 uppercase tracking-widest hover:bg-gray-800 transition flex justify-center items-center ${loading ? 'opacity-70' : ''}`}
-          >
+          <button disabled={loading} className={`w-full mt-8 bg-black text-white py-4 rounded-2xl font-bold uppercase tracking-widest text-xs hover:bg-slate-800 transition-all ${loading ? 'opacity-50' : ''}`}>
             {loading ? 'Đang xử lý...' : 'Đăng Ký Ngay'}
           </button>
 
-          <p className="mt-4 text-center text-sm">
-            Đã có tài khoản? <Link href="/login" className="text-blue-600 underline">Đăng nhập</Link>
+          <p className="mt-6 text-center text-xs text-slate-500">
+            Đã có tài khoản? <Link href="/login" className="text-black font-bold underline ml-1">Đăng nhập</Link>
           </p>
         </form>
       </div>

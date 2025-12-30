@@ -128,7 +128,7 @@ export default function Header() {
                 onClick={handleLogout} 
                 className="text-gray-500 hover:text-red-500 text-xs uppercase font-medium"
               >
-                Thoát
+                Đăng Xuất
               </button>
             </div>
           ) : (

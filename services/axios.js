@@ -3,7 +3,7 @@ import axios from 'axios';
 // 1. KHỞI TẠO INSTANCE (Đặt tên biến là 'api' để khớp với lệnh interceptors bên dưới)
 const api = axios.create({
     // Đường dẫn Backend Laravel của bạn
-    baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api', 
+    baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api',
     headers: {
         'X-Requested-With': 'XMLHttpRequest',
         'Content-Type': 'application/json',
