@@ -59,7 +59,7 @@ export default function SuccessPage() {
 
           <div className="flex flex-col md:flex-row items-center justify-center gap-4 pt-8">
             <Link 
-              href="/account/orders"
+              href="/profile/orders"
               className="group flex items-center gap-3 bg-black text-white px-8 py-5 rounded-full font-bold uppercase text-[10px] tracking-[0.2em] hover:bg-zinc-800 transition-all active:scale-95"
             >
               <ShoppingBagIcon className="w-5 h-5" />
