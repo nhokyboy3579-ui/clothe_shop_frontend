@@ -4,8 +4,41 @@ import { useCart } from "@/context/CartContext";
 import Header from "@/components/Header";
 import { OrderService } from "@/services/OrderService";
 import { useRouter } from "next/navigation";
-import toast, { Toaster } from "react-hot-toast";
+import toast from "react-hot-toast";
 import Image from "next/image";
+
+// --- Components nội bộ (Icons mới) ---
+const BankIcon = ({ className = "w-6 h-6" }) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M3 21h18M3 10h18M5 6l7-3 7 3M4 10v11M20 10v11M8 14v3M12 14v3M16 14v3" />
+  </svg>
+);
+
+const CODIcon = ({ className = "w-6 h-6" }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+    strokeWidth={2}
+    stroke="currentColor"
+    className={className}
+  >
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M2.25 18.75a60.07 60.07 0 0 1 15.795 2.104c.803.179 1.614-.386 1.884-1.173A12.451 12.451 0 0 0 21.75 14.25c0-1.05-.165-2.052-.465-2.983m-11.666 1.876a39.801 39.801 0 0 1-2.686-.34c-.76-.145-1.488.087-1.748.758-.383 1.05-.983 2.112-1.8 3.102M12.75 18.75H9.75m3.75-9H7.5M12 10.5h.008v.008H12V10.5ZM12 18.75V10.5"
+    />
+  </svg>
+);
 
 export default function CheckoutPage() {
   const { cartItems, totalPrice, clearCart } = useCart();
@@ -13,6 +46,7 @@ export default function CheckoutPage() {
   const [loading, setLoading] = useState(false);
   const [isReady, setIsReady] = useState(false);
 
+  // States cho địa chỉ
   const [provinces, setProvinces] = useState([]);
   const [districts, setDistricts] = useState([]);
   const [wards, setWards] = useState([]);
@@ -23,6 +57,7 @@ export default function CheckoutPage() {
     detail: "",
   });
 
+  // States cho thông tin khách hàng
   const [formData, setFormData] = useState({
     customer_name: "",
     customer_email: "",
@@ -37,7 +72,6 @@ export default function CheckoutPage() {
     const savedUser = JSON.parse(localStorage.getItem("user") || "null");
 
     if (!token) {
-      toast.error("Vui lòng đăng nhập để thanh toán!");
       router.push("/login");
       return;
     }
@@ -56,48 +90,48 @@ export default function CheckoutPage() {
     fetch("https://provinces.open-api.vn/api/p/")
       .then((res) => res.json())
       .then((data) => setProvinces(data))
-      .catch(() => console.error("Lỗi tải tỉnh thành"));
+      .catch(() => toast.error("Không thể tải danh sách tỉnh thành"));
   }, [router]);
 
   const handleProvinceChange = async (e) => {
     const pCode = e.target.value;
-    if (!pCode) return;
     const pName = provinces.find((p) => p.code == pCode)?.name || "";
     setAddressData({ ...addressData, province: pName, district: "", ward: "" });
+    setDistricts([]);
+    setWards([]);
 
-    try {
+    if (pCode) {
       const res = await fetch(
         `https://provinces.open-api.vn/api/p/${pCode}?depth=2`
       );
       const data = await res.json();
       setDistricts(data.districts || []);
-      setWards([]);
-    } catch (err) {
-      toast.error("Lỗi kết nối địa chỉ");
     }
   };
 
   const handleDistrictChange = async (e) => {
     const dCode = e.target.value;
-    if (!dCode) return;
     const dName = districts.find((d) => d.code == dCode)?.name || "";
     setAddressData({ ...addressData, district: dName, ward: "" });
+    setWards([]);
 
-    try {
+    if (dCode) {
       const res = await fetch(
         `https://provinces.open-api.vn/api/d/${dCode}?depth=2`
       );
       const data = await res.json();
       setWards(data.wards || []);
-    } catch (err) {
-      toast.error("Lỗi kết nối địa chỉ");
     }
   };
 
   const handlePlaceOrder = async (e) => {
     e.preventDefault();
+
     if (!addressData.province || !addressData.district || !addressData.ward) {
-      return toast.error("Vui lòng chọn đầy đủ địa chỉ!");
+      return toast.error("Vui lòng chọn đầy đủ địa chỉ giao hàng!");
+    }
+    if (cartItems.length === 0) {
+      return toast.error("Giỏ hàng đang trống!");
     }
 
     try {
@@ -110,21 +144,35 @@ export default function CheckoutPage() {
         cart_items: cartItems.map((item) => ({
           product_id: item.id,
           quantity: item.quantity,
-          price: item.price, // Gửi giá để làm phương án dự phòng cho backend
+          price: item.price,
           variant: item.attributes ? JSON.stringify(item.attributes) : null,
         })),
       };
 
       const res = await OrderService.createOrder(orderPayload);
+      const orderId = res?.order_id;
 
-      if (res) {
-        toast.success("Đặt hàng thành công!");
+      if (orderId) {
         clearCart();
-        router.push("/checkout/success");
+
+        if (formData.payment_method === "BANKING") {
+          // CHỈNH SỬA: Chuyển hướng sang payment/banking
+          toast.success(
+            "Đơn hàng đã tạo. Đang chuyển sang thanh toán ngân hàng..."
+          );
+          router.push(
+            `/payment/banking?orderId=${orderId}&amount=${totalPrice}`
+          );
+        } else {
+          toast.success("Đặt hàng thành công!");
+          router.push("/checkout/success");
+        }
+      } else {
+        throw new Error("Không nhận được mã đơn hàng từ hệ thống.");
       }
     } catch (error) {
-      const msg = error.response?.data?.message || "Lỗi khi đặt hàng";
-      toast.error(msg);
+      console.error("Lỗi đặt hàng:", error);
+      toast.error(error.message || "Đã xảy ra lỗi khi xử lý đơn hàng!");
     } finally {
       setLoading(false);
     }
@@ -133,14 +181,12 @@ export default function CheckoutPage() {
   if (!isReady) return null;
 
   return (
-    <main className="min-h-screen bg-gray-50 pb-20 font-sans">
+    <main className="min-h-screen bg-gray-50 pb-20">
       <Header />
-      <Toaster position="top-center" />
       <div className="container mx-auto px-4 py-12 max-w-6xl">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-          {/* PHẦN FORM NHẬP LIỆU */}
           <div className="bg-white p-10 rounded-[3rem] border shadow-sm">
-            <h2 className="text-2xl font-serif font-bold mb-8 italic uppercase tracking-tighter text-slate-800">
+            <h2 className="text-2xl font-serif font-bold mb-8 uppercase italic">
               Thông tin giao hàng
             </h2>
             <form onSubmit={handlePlaceOrder} className="space-y-6">
@@ -148,7 +194,7 @@ export default function CheckoutPage() {
                 <input
                   required
                   placeholder="Họ tên *"
-                  className="border-b py-3 focus:border-black outline-none transition-all"
+                  className="border-b py-3 outline-none focus:border-black transition-colors"
                   value={formData.customer_name}
                   onChange={(e) =>
                     setFormData({ ...formData, customer_name: e.target.value })
@@ -156,8 +202,9 @@ export default function CheckoutPage() {
                 />
                 <input
                   required
+                  type="tel"
                   placeholder="Số điện thoại *"
-                  className="border-b py-3 focus:border-black outline-none transition-all"
+                  className="border-b py-3 outline-none focus:border-black transition-colors"
                   value={formData.customer_phone}
                   onChange={(e) =>
                     setFormData({ ...formData, customer_phone: e.target.value })
@@ -165,10 +212,9 @@ export default function CheckoutPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-3 gap-4 text-xs font-bold">
                 <select
-                  required
-                  className="border-b py-3 text-[11px] font-bold outline-none bg-transparent"
+                  className="border-b py-3 outline-none bg-transparent cursor-pointer"
                   onChange={handleProvinceChange}
                 >
                   <option value="">Tỉnh/Thành</option>
@@ -179,8 +225,7 @@ export default function CheckoutPage() {
                   ))}
                 </select>
                 <select
-                  required
-                  className="border-b py-3 text-[11px] font-bold outline-none bg-transparent"
+                  className="border-b py-3 outline-none bg-transparent cursor-pointer"
                   onChange={handleDistrictChange}
                   disabled={!districts.length}
                 >
@@ -192,8 +237,7 @@ export default function CheckoutPage() {
                   ))}
                 </select>
                 <select
-                  required
-                  className="border-b py-3 text-[11px] font-bold outline-none bg-transparent"
+                  className="border-b py-3 outline-none bg-transparent cursor-pointer"
                   disabled={!wards.length}
                   onChange={(e) =>
                     setAddressData({
@@ -213,8 +257,8 @@ export default function CheckoutPage() {
 
               <input
                 required
-                placeholder="Địa chỉ cụ thể (Số nhà, đường...) *"
-                className="w-full border-b py-3 outline-none focus:border-black transition-all"
+                placeholder="Địa chỉ cụ thể (Số nhà, tên đường...) *"
+                className="w-full border-b py-3 outline-none focus:border-black transition-colors"
                 value={addressData.detail}
                 onChange={(e) =>
                   setAddressData({ ...addressData, detail: e.target.value })
@@ -226,28 +270,43 @@ export default function CheckoutPage() {
                   Phương thức thanh toán
                 </p>
                 <div className="flex gap-4">
-                  {["COD", "BANKING"].map((method) => (
+                  {[
+                    { id: "COD", label: "Tiền mặt (COD)", icon: <CODIcon /> },
+                    {
+                      id: "BANKING",
+                      label: "Chuyển khoản Ngân hàng",
+                      icon: <BankIcon />,
+                    }, // CẬP NHẬT LABEL & ICON
+                  ].map((method) => (
                     <label
-                      key={method}
-                      className={`flex-1 border p-4 rounded-2xl cursor-pointer transition-all ${
-                        formData.payment_method === method
-                          ? "border-black bg-slate-50"
-                          : "border-gray-100"
+                      key={method.id}
+                      className={`flex-1 border p-5 rounded-3xl cursor-pointer flex flex-col items-center gap-3 transition-all ${
+                        formData.payment_method === method.id
+                          ? "border-black bg-slate-50 ring-1 ring-black shadow-md"
+                          : "border-gray-100 hover:bg-gray-50"
                       }`}
                     >
                       <input
                         type="radio"
                         className="hidden"
                         name="payment_method"
-                        checked={formData.payment_method === method}
+                        checked={formData.payment_method === method.id}
                         onChange={() =>
-                          setFormData({ ...formData, payment_method: method })
+                          setFormData({
+                            ...formData,
+                            payment_method: method.id,
+                          })
                         }
                       />
-                      <span className="text-[11px] font-bold uppercase block text-center">
-                        {method === "COD"
-                          ? "Thanh toán khi nhận hàng"
-                          : "Chuyển khoản"}
+                      {method.icon}
+                      <span
+                        className={`text-[10px] font-bold uppercase ${
+                          formData.payment_method === method.id
+                            ? "text-black"
+                            : "text-slate-400"
+                        }`}
+                      >
+                        {method.label}
                       </span>
                     </label>
                   ))}
@@ -256,25 +315,24 @@ export default function CheckoutPage() {
 
               <button
                 disabled={loading || cartItems.length === 0}
-                className="w-full bg-black text-white py-6 rounded-3xl font-bold uppercase text-[10px] tracking-widest hover:bg-indigo-600 transition-all disabled:bg-slate-300 shadow-xl active:scale-[0.98]"
+                className="w-full bg-black text-white py-6 rounded-3xl font-bold uppercase text-[10px] tracking-widest hover:bg-slate-800 disabled:bg-slate-300 transition-all active:scale-[0.98] shadow-xl"
               >
                 {loading ? "ĐANG XỬ LÝ..." : "XÁC NHẬN ĐẶT HÀNG"}
               </button>
             </form>
           </div>
 
-          {/* PHẦN TÓM TẮT ĐƠN HÀNG */}
           <div className="bg-slate-900 rounded-[3rem] p-10 text-white h-fit sticky top-24 shadow-2xl">
             <h3 className="text-[10px] font-bold uppercase text-indigo-400 mb-8 border-l-4 pl-4 italic tracking-widest">
               Đơn hàng của bạn
             </h3>
-            <div className="space-y-6 max-h-[350px] overflow-y-auto pr-2 mb-8 custom-scrollbar">
+            <div className="space-y-6 max-h-[350px] overflow-y-auto mb-8 pr-2 custom-scrollbar">
               {cartItems.map((item) => (
                 <div
                   key={item.uniqueId}
                   className="flex gap-4 items-center border-b border-white/5 pb-4 last:border-0"
                 >
-                  <div className="w-14 h-20 relative rounded-xl overflow-hidden bg-white/10 flex-shrink-0 border border-white/10">
+                  <div className="w-14 h-20 relative rounded-xl overflow-hidden bg-white/10 flex-shrink-0">
                     <Image
                       src={item.image || "/placeholder.png"}
                       alt={item.name}
@@ -284,26 +342,14 @@ export default function CheckoutPage() {
                     />
                   </div>
                   <div className="flex-grow">
-                    <p className="text-xs font-bold italic line-clamp-1 uppercase tracking-tight">
+                    <p className="text-xs font-bold italic uppercase line-clamp-1">
                       {item.name}
                     </p>
                     <p className="text-[10px] text-slate-400 mt-1">
                       Số lượng: {item.quantity}
                     </p>
-                    {item.attributes && (
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        {Object.entries(item.attributes).map(([k, v]) => (
-                          <span
-                            key={k}
-                            className="text-[8px] px-2 py-0.5 bg-indigo-500/20 text-indigo-300 font-bold uppercase rounded-full"
-                          >
-                            {k}: {v}
-                          </span>
-                        ))}
-                      </div>
-                    )}
                   </div>
-                  <p className="font-bold text-sm whitespace-nowrap">
+                  <p className="font-bold text-sm">
                     {new Intl.NumberFormat("vi-VN").format(
                       item.price * item.quantity
                     )}{" "}
@@ -314,29 +360,16 @@ export default function CheckoutPage() {
             </div>
 
             <div className="flex justify-between items-end border-t border-white/10 pt-8">
-              <span className="text-[10px] font-bold uppercase text-indigo-400">
+              <span className="text-[10px] font-bold uppercase text-indigo-400 tracking-widest">
                 Tổng cộng
               </span>
-              <span className="text-3xl font-bold italic tracking-tighter text-white">
+              <span className="text-3xl font-bold italic text-white">
                 {new Intl.NumberFormat("vi-VN").format(totalPrice)} đ
               </span>
             </div>
           </div>
         </div>
       </div>
-
-      <style jsx global>{`
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: rgba(255, 255, 255, 0.05);
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: rgba(255, 255, 255, 0.2);
-          border-radius: 10px;
-        }
-      `}</style>
     </main>
   );
 }
