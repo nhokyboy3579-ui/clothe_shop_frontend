@@ -94,4 +94,13 @@ export const UserProductService = {
       return { stock: 0, total_import: 0, status_text: "Kiểm tra lỗi" };
     }
   },
+  getRelated: async (id) => {
+    try {
+      const response = await axios.get(`${API_URL}/related-products/${id}`);
+      return response.data.data; // Trả về mảng sản phẩm liên quan
+    } catch (error) {
+      console.error("Lỗi lấy sản phẩm liên quan:", error);
+      return [];
+    }
+  },
 };

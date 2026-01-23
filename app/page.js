@@ -3,300 +3,285 @@
 import { useEffect, useState, useMemo } from "react";
 import ProductCard from "@/components/ProductCard";
 import Header from "@/components/Header";
-import HomeFooter from "@/components/HomeFooter"; // <--- ĐÃ IMPORT FOOTER
+import HomeFooter from "@/components/HomeFooter";
 import Link from "next/link";
 import Image from "next/image";
-import axios from "axios"; 
+import axios from "axios";
 import { HomepageService } from "@/services/HomepageService";
 
-// --- CẤU HÌNH ---
 const AUTO_PLAY_DELAY = 5000;
-const API_URL = 'http://localhost:8000/api';
+const API_URL = "http://localhost:8000/api";
 
-// --- CÁC HÀM HELPER ---
 const formatCurrency = (amount) => {
-  if (amount === null || amount === undefined || isNaN(amount)) return '0 đ';
+  if (amount === null || amount === undefined || isNaN(amount)) return "0 đ";
   return new Intl.NumberFormat("vi-VN").format(amount) + " đ";
 };
 
-const calculateDiscount = (original, sale) => {
-  if (!original || !sale || original <= 0) return 0;
-  return Math.round(((original - sale) / original) * 100);
-};
-
-// Hàm tính thời gian còn lại cho đếm ngược
+// Hàm bổ trợ tính thời gian cho từng Item
 const calculateTimeLeft = (endDateString) => {
-    const difference = +new Date(endDateString) - +new Date();
-    let timeLeft = {};
-
-    if (difference > 0) {
-        timeLeft = {
-            days: Math.floor(difference / (1000 * 60 * 60 * 24)),
-            hours: Math.floor((difference / (1000 * 60 * 60)) % 24),
-            minutes: Math.floor((difference / 1000 / 60) % 60),
-            seconds: Math.floor((difference / 1000) % 60),
-        };
-    } else {
-        return null; 
-    }
-    const pad = (n) => (n < 10 ? '0' + n : n);
-    return {
-        days: pad(timeLeft.days),
-        hours: pad(timeLeft.hours),
-        minutes: pad(timeLeft.minutes),
-        seconds: pad(timeLeft.seconds),
-    };
+  const difference = +new Date(endDateString) - +new Date();
+  if (difference <= 0) return null;
+  return {
+    days: Math.floor(difference / (1000 * 60 * 60 * 24)),
+    hours: Math.floor((difference / (1000 * 60 * 60)) % 24),
+    minutes: Math.floor((difference / 1000 / 60) % 60),
+    seconds: Math.floor((difference / 1000) % 60),
+  };
 };
 
-// ================= COMPONENT CHÍNH =================
 export default function Home() {
-  // --- STATE ---
   const [allProducts, setAllProducts] = useState([]);
   const [allBanners, setAllBanners] = useState([]);
-  const [flashSales, setFlashSales] = useState([]); 
+  const [flashSales, setFlashSales] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  // --- UI STATE ---
   const [currentBannerIndex, setCurrentBannerIndex] = useState(0);
 
-  // --- 1. GỌI API DỮ LIỆU ---
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
-        
         const [homeData, resSales] = await Promise.all([
-             HomepageService.getAllData(),
-             axios.get(`${API_URL}/products/sale`)
+          HomepageService.getAllData(),
+          axios.get(`${API_URL}/products/sale`),
         ]);
-
         setAllBanners(homeData.banners || []);
         setAllProducts(homeData.products || []);
-
         const salesData = resSales.data.data || resSales.data || [];
-        
         if (Array.isArray(salesData)) {
-            const now = new Date();
-            const validSales = salesData.filter(item => new Date(item.sale_info?.date_end || item.date_end) > now);
-            setFlashSales(validSales);
-        } else {
-             setFlashSales([]);
+          const now = new Date();
+          setFlashSales(
+            salesData.filter(
+              (item) =>
+                new Date(item.sale_info?.date_end || item.date_end) > now
+            )
+          );
         }
-
       } catch (err) {
-        console.error("Lỗi tải trang chủ:", err);
-        setError("Không thể tải dữ liệu. Vui lòng kiểm tra kết nối.");
+        console.error(err);
       } finally {
         setLoading(false);
       }
     };
-
     loadData();
   }, []);
 
-  // --- LOGIC XỬ LÝ (Banner, Sản phẩm mới) ---
-  const { latestProducts, slideshows } = useMemo(() => {
-      const slideshows = allBanners.filter((b) => b.position === "slideshow");
-      const sortedProducts = [...allProducts].sort((a, b) => b.id - a.id);
+  const { latestProducts, slideshows, categoriesWithProducts } = useMemo(() => {
+    const slideshows = allBanners.filter((b) => b.position === "slideshow");
+    const latestProducts = [...allProducts]
+      .sort((a, b) => b.id - a.id)
+      .slice(0, 10);
+    const categoryMap = {};
+    allProducts.forEach((p) => {
+      const cat = p.category_name || "Khác";
+      if (!categoryMap[cat]) categoryMap[cat] = [];
+      if (categoryMap[cat].length < 5) categoryMap[cat].push(p);
+    });
+    return {
+      latestProducts,
+      slideshows,
+      categoriesWithProducts: Object.keys(categoryMap).map((name) => ({
+        name,
+        products: categoryMap[name],
+      })),
+    };
+  }, [allProducts, allBanners]);
 
-      // --- Lấy 10 sản phẩm mới nhất ---
-      const latestProducts = sortedProducts.slice(0, 10);
-
-      return { latestProducts, slideshows };
-    }, [allProducts, allBanners]);
-
-  // Auto-play Banner
-  useEffect(() => {
-    if (slideshows.length <= 1) return;
-    const interval = setInterval(() => {
-      setCurrentBannerIndex((prev) => (prev + 1) % slideshows.length);
-    }, AUTO_PLAY_DELAY);
-    return () => clearInterval(interval);
-  }, [slideshows.length]);
-
-  const handleNextBanner = () => slideshows.length > 0 && setCurrentBannerIndex((prev) => (prev + 1) % slideshows.length);
-  const handlePrevBanner = () => slideshows.length > 0 && setCurrentBannerIndex((prev) => (prev - 1 + slideshows.length) % slideshows.length);
-
-  // --- RENDER GIAO DIỆN ---
-  if (loading) return (
-      <div className="min-h-screen bg-white flex items-center justify-center container mx-auto">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600"></div>
+  if (loading)
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center font-bold uppercase tracking-widest text-[10px]">
+        TN Clothes Loading...
       </div>
-  );
-
-  if (error) return (
-      <div className="min-h-screen bg-white flex items-center justify-center container mx-auto text-red-500 font-bold">{error}</div>
-  );
+    );
 
   return (
-    <main className="min-h-screen bg-white flex flex-col">
+    <main className="min-h-screen bg-white flex flex-col font-sans">
       <Header />
 
-      {/* ================= 1. BANNER SLIDER ================= */}
-      <section className="relative w-full h-[400px] md:h-[600px] flex items-center justify-center mb-10 overflow-hidden group">
-        {slideshows.length > 0 ? (
-          <div className="relative w-full h-full">
-            <div
-              className="absolute inset-0 flex transition-transform duration-700 ease-in-out"
-              style={{
-                transform: `translateX(-${currentBannerIndex * (100 / slideshows.length)}%)`,
-                width: `${slideshows.length * 100}%`,
-              }}
-            >
-              {slideshows.map((banner, index) => (
-                <div key={index} className="relative flex-shrink-0 w-full h-full" style={{ width: `${100 / slideshows.length}%` }}>
-                    <Image 
-                        src={banner.image} alt={banner.name} fill 
-                        className="object-cover" priority={index === 0} unoptimized
-                    />
-                  <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
-                    <div className="text-center p-8">
-                      <h2 className="text-4xl md:text-6xl font-serif mb-6 text-white uppercase drop-shadow-lg opacity-0 animate-[fadeInUp_1s_ease-out_forwards]">
-                        {banner.name}
-                      </h2>
-                      <Link
-                        href={banner.link || "/products"}
-                        className="bg-white text-black px-8 py-3 text-sm uppercase tracking-widest hover:bg-black hover:text-white transition duration-300 transform hover:scale-105 inline-block shadow-lg"
-                      >
-                        Xem ngay
-                      </Link>
-                    </div>
-                  </div>
-                </div>
-              ))}
+      {/* 1. HERO SLIDER */}
+      <section className="relative w-full h-[60vh] md:h-[80vh] overflow-hidden">
+        {slideshows.map((banner, index) => (
+          <div
+            key={index}
+            className={`absolute inset-0 transition-opacity duration-1000 ${
+              index === currentBannerIndex ? "opacity-100 z-10" : "opacity-0"
+            }`}
+          >
+            <Image
+              src={banner.image}
+              alt={banner.name}
+              fill
+              className="object-cover"
+              unoptimized
+            />
+            <div className="absolute inset-0 bg-black/10 flex items-center justify-center">
+              <Link
+                href="/products"
+                className="bg-white text-black px-12 py-4 text-[10px] font-black uppercase tracking-[0.3em] hover:bg-black hover:text-white transition-all shadow-2xl"
+              >
+                Discovery
+              </Link>
             </div>
-            {/* Nút điều hướng */}
-            {slideshows.length > 1 && (
-                <>
-                  <button onClick={handlePrevBanner} className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/30 hover:bg-white text-black rounded-full transition opacity-0 group-hover:opacity-100">&#10094;</button>
-                  <button onClick={handleNextBanner} className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/30 hover:bg-white text-black rounded-full transition opacity-0 group-hover:opacity-100">&#10095;</button>
-                </>
-            )}
           </div>
-        ) : (
-          <div className="w-full h-full bg-gray-200 flex items-center justify-center text-gray-500">Loading Banner...</div>
-        )}
+        ))}
       </section>
 
-      {/* ================= 2. FLASH SALE SECTION ================= */}
+      {/* 2. LIMITED OFFERS - NỀN ĐỎ CHUYÊN NGHIỆP */}
       {flashSales.length > 0 && (
-        <section className="container mx-auto px-4 mb-16">
-            <div className="bg-gradient-to-r from-red-600 to-orange-500 rounded-t-lg p-4 flex flex-col md:flex-row items-center justify-between shadow-lg text-white gap-2">
-                <div className="flex items-center gap-2">
-                    <span className="text-3xl animate-pulse">⚡</span>
-                    <h2 className="text-xl md:text-2xl font-bold uppercase italic tracking-wider">FLASH SALE</h2>
-                </div>
-                <div className="text-sm font-bold bg-white/20 px-4 py-1.5 rounded-full flex items-center gap-1">
-                    Nhanh tay kẻo lỡ!
-                </div>
+        <section className="py-20 bg-[#991b1b]">
+          <div className="container mx-auto px-4">
+            <div className="text-center mb-16">
+              <h2 className="text-white text-3xl md:text-5xl font-serif italic mb-4 uppercase tracking-tighter">
+                Limited Offers
+              </h2>
+              <p className="text-red-200 text-[10px] uppercase tracking-[0.4em]">
+                Đừng bỏ lỡ những thiết kế cuối cùng
+              </p>
             </div>
 
-            <div className="border border-red-200 border-t-0 bg-red-50 p-4 md:p-6 rounded-b-lg shadow-sm">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {flashSales.map((item) => (
-                        <FlashSaleItemWithTimer key={item.id} item={item} />
-                    ))}
-                </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+              {flashSales.map((item) => (
+                <FlashSaleCard key={item.id} item={item} />
+              ))}
             </div>
+          </div>
         </section>
       )}
 
-      {/* ================= 3. SẢN PHẨM MỚI (Hiện 10 sản phẩm) ================= */}
-      <section className="container mx-auto px-4 mb-10 flex-grow">
-        <div className="flex items-center justify-between mb-8 border-b pb-4">
-             <div className="flex flex-col">
-                <h2 className="text-2xl font-serif uppercase tracking-widest text-gray-900">Sản Phẩm Mới</h2>
-                <span className="text-gray-500 text-sm mt-1">Cập nhật xu hướng mới nhất</span>
-             </div>
-             <Link href="/products" className="text-sm font-bold border-b border-black pb-0.5 hover:text-gray-600 transition">
-                Xem tất cả
-             </Link>
+      {/* 3. NEW ARRIVALS */}
+      <section className="py-24 container mx-auto px-4">
+        <div className="flex flex-col items-center mb-16">
+          <h2 className="text-2xl font-serif uppercase tracking-[0.2em] font-bold mb-3">
+            New Arrivals
+          </h2>
+          <div className="w-12 h-[2px] bg-black"></div>
         </div>
-
-        {latestProducts.length > 0 ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
-            {latestProducts.map((product) => (
-              <ProductCard key={product.id} product={product} formatCurrency={formatCurrency} />
-            ))}
-          </div>
-        ) : (
-          <p className="text-center text-gray-500 italic py-10">Không có sản phẩm mới.</p>
-        )}
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-8">
+          {latestProducts.map((product) => (
+            <div key={product.id} className="relative">
+              <div className="absolute top-4 left-4 z-20 bg-red-600 text-white text-[8px] font-black px-3 py-1 uppercase tracking-widest">
+                New
+              </div>
+              <ProductCard product={product} formatCurrency={formatCurrency} />
+            </div>
+          ))}
+        </div>
       </section>
 
-      {/* ================= 4. FOOTER RIÊNG CHO HOME ================= */}
-      <HomeFooter /> 
-      
+      {/* 4. CATEGORIES */}
+      {categoriesWithProducts.map((cat, idx) => (
+        <section key={idx} className="py-20 border-t border-gray-50">
+          <div className="container mx-auto px-4">
+            <div className="flex justify-between items-end mb-12">
+              <div>
+                <h2 className="text-xl font-serif uppercase tracking-widest font-black">
+                  {cat.name}
+                </h2>
+                <div className="w-8 h-[1px] bg-gray-300 mt-2"></div>
+              </div>
+              <Link
+                href={`/products?category=${encodeURIComponent(cat.name)}`}
+                className="text-[10px] font-bold uppercase border-b border-black pb-1 hover:tracking-widest transition-all"
+              >
+                View All
+              </Link>
+            </div>
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-8">
+              {cat.products.map((product) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  formatCurrency={formatCurrency}
+                />
+              ))}
+            </div>
+          </div>
+        </section>
+      ))}
+
+      <HomeFooter />
     </main>
   );
 }
 
-// ================= COMPONENT CON: ITEM FLASH SALE =================
-function FlashSaleItemWithTimer({ item }) {
-    const endDate = item.sale_info?.date_end || item.date_end;
-    const [timeLeft, setTimeLeft] = useState(calculateTimeLeft(endDate));
+// --- COMPONENT CON: CARD FLASH SALE CÓ ĐỒNG HỒ RIÊNG ---
+function FlashSaleCard({ item }) {
+  const endDate = item.sale_info?.date_end || item.date_end;
+  const [timeLeft, setTimeLeft] = useState(calculateTimeLeft(endDate));
 
-    useEffect(() => {
-        const timer = setInterval(() => {
-            const newTime = calculateTimeLeft(endDate);
-            setTimeLeft(newTime);
-            if (!newTime) clearInterval(timer);
-        }, 1000);
-        return () => clearInterval(timer);
-    }, [endDate]);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTimeLeft(calculateTimeLeft(endDate));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [endDate]);
 
-    if (!timeLeft) return null; 
+  if (!timeLeft) return null;
 
-    const imageUrl = item.image || item.thumbnail || 'https://placehold.co/300x400';
-    const discount = item.discount_percent || calculateDiscount(item.price_original || item.price, item.price_sale);
-    const priceSale = item.price_sale;
-    const priceOriginal = item.price_original || item.price;
+  return (
+    <div className="bg-white group rounded-sm overflow-hidden flex flex-col h-full shadow-lg hover:shadow-2xl transition-all duration-500 border border-red-900/10">
+      {/* Ảnh sản phẩm */}
+      <Link
+        href={`/products/${item.id}`}
+        className="relative aspect-[3/4] overflow-hidden block"
+      >
+        <Image
+          src={item.image || "/placeholder.png"}
+          alt={item.name}
+          fill
+          className="object-cover group-hover:scale-110 transition-transform duration-1000"
+          unoptimized
+        />
+        <div className="absolute top-0 right-0 bg-black text-white text-[10px] font-black px-4 py-2 uppercase tracking-tighter">
+          -
+          {Math.round(
+            (((item.price_original || item.price) - item.price_sale) /
+              (item.price_original || item.price)) *
+              100
+          )}
+          %
+        </div>
+      </Link>
 
-    return (
-        <Link href={`/products/${item.id}`} className="group bg-white rounded-lg shadow-sm hover:shadow-xl transition-all overflow-hidden border border-transparent hover:border-red-500 flex flex-col h-full">
-            <div className="relative aspect-[3/4] w-full overflow-hidden bg-gray-100">
-                <Image
-                    src={imageUrl} alt={item.name} fill
-                    className="object-cover group-hover:scale-110 transition-transform duration-700"
-                    unoptimized
-                />
-                {discount > 0 && (
-                    <div className="absolute top-2 right-2 bg-yellow-400 text-red-800 text-xs font-bold px-2 py-1 rounded shadow-md z-10">
-                        -{discount}%
-                    </div>
-                )}
-            </div>
-            
-            <div className="p-3 flex flex-col flex-grow justify-between">
-                <div>
-                    <h3 className="text-sm text-gray-800 font-medium line-clamp-2 min-h-[40px] group-hover:text-red-600 transition-colors mb-2">
-                        {item.name}
-                    </h3>
-                    <div className="flex flex-wrap items-end gap-2">
-                        <span className="text-red-600 font-bold text-lg">{formatCurrency(priceSale)}</span>
-                        <span className="text-gray-400 text-xs line-through mb-1">{formatCurrency(priceOriginal)}</span>
-                    </div>
-                </div>
+      {/* Nội dung và Đồng hồ đếm ngược */}
+      <div className="p-5 flex flex-col flex-grow bg-white">
+        <h3 className="text-[11px] font-black uppercase text-gray-900 mb-3 tracking-tight line-clamp-1 italic">
+          {item.name}
+        </h3>
 
-                {/* ĐỒNG HỒ ĐẾM NGƯỢC */}
-                <div className="mt-3 pt-3 border-t border-dashed border-gray-200">
-                    <div className="text-[10px] text-center text-gray-500 uppercase font-semibold mb-1">Kết thúc trong</div>
-                    <div className="flex justify-center gap-1 text-xs font-bold text-white">
-                        {parseInt(timeLeft.days) > 0 && (
-                            <span className="bg-gray-800 rounded px-1.5 py-0.5 min-w-[22px] text-center">{timeLeft.days}d</span>
-                        )}
-                        <span className="bg-red-600 rounded px-1.5 py-0.5 min-w-[22px] text-center">{timeLeft.hours}</span>
-                        <span className="text-red-600 font-bold">:</span>
-                        <span className="bg-red-600 rounded px-1.5 py-0.5 min-w-[22px] text-center">{timeLeft.minutes}</span>
-                        <span className="text-red-600 font-bold">:</span>
-                        <span className="bg-red-600 rounded px-1.5 py-0.5 min-w-[22px] text-center">{timeLeft.seconds}</span>
-                    </div>
-                    <div className="mt-2 w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-gradient-to-r from-red-500 to-orange-400 w-[75%]"></div>
-                    </div>
-                </div>
-            </div>
-        </Link>
-    );
+        <div className="flex items-center gap-3 mb-5">
+          <span className="text-red-600 font-black text-lg">
+            {formatCurrency(item.price_sale)}
+          </span>
+          <span className="text-gray-400 text-[11px] line-through">
+            {formatCurrency(item.price_original || item.price)}
+          </span>
+        </div>
+
+        {/* Đồng hồ đếm ngược riêng cho từng sản phẩm */}
+        <div className="mt-auto pt-4 border-t border-dashed border-gray-100">
+          <p className="text-[9px] text-gray-400 font-bold uppercase tracking-[0.2em] mb-3 text-center">
+            Kết thúc sau
+          </p>
+          <div className="grid grid-cols-4 gap-2">
+            <TimeBox value={timeLeft.days} unit="D" />
+            <TimeBox value={timeLeft.hours} unit="H" />
+            <TimeBox value={timeLeft.minutes} unit="M" />
+            <TimeBox value={timeLeft.seconds} unit="S" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- COMPONENT CON: Ô THỜI GIAN ---
+function TimeBox({ value, unit }) {
+  return (
+    <div className="flex flex-col items-center bg-gray-50 rounded py-2 border border-gray-100">
+      <span className="text-sm font-black text-gray-900">
+        {value < 10 ? `0${value}` : value}
+      </span>
+      <span className="text-[8px] font-bold text-gray-400">{unit}</span>
+    </div>
+  );
 }

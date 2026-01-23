@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react"; // Thêm useRef
 import { useSearchParams, useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import { OrderService } from "@/services/OrderService";
@@ -11,22 +11,42 @@ export default function MomoPaymentPage() {
 
   const orderId = searchParams.get("orderId");
   const amount = searchParams.get("amount");
-  const myPhone = "9704229201697779848";
   const memo = `DH${orderId}`;
 
   const [isPaid, setIsPaid] = useState(false);
+  const isPaidRef = useRef(false); // Sử dụng Ref để theo dõi trạng thái thanh toán trong event listener
 
-  // SỬA TẠI ĐÂY: Sử dụng endpoint img.vietqr.io để đảm bảo hiển thị ảnh 100%
-  // Thay đổi dòng qrUrl cũ bằng dòng này:
-  const qrUrl = `https://img.vietqr.io/image/970422-${myPhone}-compact.jpg?amount=${amount}&addInfo=${encodeURIComponent(memo)}&accountName=THUY%20NGHIEM`;
+  const qrUrl = `https://img.vietqr.io/image/970436-1026789702-compact.jpg?amount=${amount}&addInfo=${encodeURIComponent(
+    memo
+  )}&accountName=THUY%20NGHIEM`;
+
+  // Cập nhật ref mỗi khi isPaid thay đổi
+  useEffect(() => {
+    isPaidRef.current = isPaid;
+  }, [isPaid]);
 
   useEffect(() => {
     if (!orderId) return;
 
+    const handleCancelOrder = async () => {
+      if (!isPaidRef.current) {
+        // Đảm bảo URL này khớp với route Laravel của bạn
+        fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/orders/${orderId}/cancel-unpaid`,
+          {
+            method: "POST",
+            keepalive: true, // Giúp request vẫn gửi đi thành công kể cả khi tab đã đóng
+          }
+        );
+      }
+    };
+
+    window.addEventListener("beforeunload", handleCancelOrder);
+
+    // --- LOGIC 2: KIỂM TRA TRẠNG THÁI THANH TOÁN (Giữ nguyên cũ) ---
     const interval = setInterval(async () => {
       try {
         const order = await OrderService.getOrderById(orderId);
-        // Kiểm tra trạng thái từ model Order: Mới (1), Đang xử lý (2)
         if (order && (order.payment_status === "Paid" || order.status === 2)) {
           setIsPaid(true);
           toast.success("Hệ thống đã nhận được tiền!");
@@ -40,7 +60,10 @@ export default function MomoPaymentPage() {
       }
     }, 5000);
 
-    return () => clearInterval(interval);
+    return () => {
+      window.removeEventListener("beforeunload", handleCancelOrder);
+      clearInterval(interval);
+    };
   }, [orderId, router]);
 
   return (
@@ -49,21 +72,18 @@ export default function MomoPaymentPage() {
       <div className="container mx-auto px-4 py-20 flex flex-col items-center">
         <div className="bg-white p-8 rounded-[2.5rem] shadow-xl max-w-md w-full text-center border">
           <h2 className="text-xl font-bold mb-2 uppercase tracking-tight">
-            Thanh toán qua MoMo
+            Thanh toán Chuyển khoản
           </h2>
-          <p className="text-gray-500 text-sm mb-6">
-            Quét mã QR dưới đây để hoàn tất đơn hàng
+          <p className="text-gray-500 text-[12px] mb-6 italic text-red-500 font-medium">
+            * Lưu ý: Không thoát trang này cho đến khi nhận được thông báo thành
+            công. Thoát trang đơn hàng sẽ bị hủy tự động.
           </p>
 
           <div className="relative w-72 h-72 mx-auto mb-6 border-4 border-slate-50 rounded-2xl overflow-hidden bg-white">
-            {/* Thêm unoptimized hoặc dùng thẻ img thuần để tránh lỗi loading ảnh */}
             <img
               src={qrUrl}
-              alt="Momo QR Code"
+              alt="VietQR Code"
               className="w-full h-full object-contain p-2"
-              onError={(e) => {
-                e.target.src = `https://quickchart.io/qr?text=momo://pay?phone=${myPhone}&amount=${amount}&note=${memo}`;
-              }}
             />
           </div>
 
@@ -89,7 +109,7 @@ export default function MomoPaymentPage() {
           ) : (
             <div className="flex items-center justify-center gap-2 text-slate-400 text-sm italic">
               <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
-              Đang chờ xác nhận từ ứng dụng...
+              Đang chờ xác nhận từ ứng dụng ngân hàng...
             </div>
           )}
         </div>

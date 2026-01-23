@@ -276,8 +276,7 @@ export default function ProfileOrdersPage() {
               </div>
 
               {/* NÚT HỦY ĐƠN */}
-              {(getStatus(selectedOrder.status).code === 1 ||
-                getStatus(selectedOrder.status).code === 2) && (
+              {getStatus(selectedOrder.status).code === 1 && (
                 <button
                   onClick={() => setShowConfirmCancel(true)}
                   className="w-full py-4 bg-white border-2 border-red-50 text-red-500 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] hover:bg-red-500 hover:text-white hover:border-red-500 transition-all shadow-sm"

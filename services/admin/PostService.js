@@ -1,37 +1,40 @@
-import api from '@/services/axios'; // Đảm bảo bạn đã cấu hình axios instance
+import api from "@/services/axios";
 
-// 1. Lấy danh sách (có search, pagination)
+// 1. Lấy danh sách (Có search, filter topic, status, pagination)
 export const fetchPosts = async (params) => {
-    // params = { page: 1, limit: 10, search: '...' }
-    const response = await api.get('/admin/posts', { params });
-    return response.data;
+  // params có thể bao gồm: { page, limit, search, topic_id, status, type }
+  const response = await api.get("/admin/posts", { params });
+  return response.data;
 };
 
-// 2. Lấy danh sách Chủ đề (Topic)
+// 2. Lấy danh sách Chủ đề cho dropdown
 export const fetchTopicsForPost = async () => {
-    const response = await api.get('/admin/posts/topics');
-    return response.data.data; 
+  const response = await api.get("/admin/posts/topics");
+  // Kiểm tra và trả về mảng dữ liệu
+  return Array.isArray(response.data)
+    ? response.data
+    : response.data.data || [];
 };
 
-// 3. Thêm hoặc Sửa
+// 3. Lưu bài viết (Thêm/Sửa)
 export const savePost = async (formData, id = null) => {
-    if (id) {
-        // --- CẬP NHẬT (Update) ---
-        // Lưu ý: Khi dùng FormData để upload file trong Laravel qua method PUT,
-        // ta phải dùng POST và thêm field "_method": "PUT"
-        formData.append('_method', 'PUT');
-        return await api.post(`/admin/posts/${id}`, formData, {
-            headers: { 'Content-Type': 'multipart/form-data' }
-        });
-    } else {
-        // --- THÊM MỚI (Create) ---
-        return await api.post('/admin/posts', formData, {
-            headers: { 'Content-Type': 'multipart/form-data' }
-        });
+  const config = {
+    headers: { "Content-Type": "multipart/form-data" },
+  };
+
+  if (id) {
+    // Trick cho Laravel khi Update có kèm File
+    // Chỉ append nếu formData là instance của FormData
+    if (formData instanceof FormData) {
+      formData.append("_method", "PUT");
     }
+    return await api.post(`/admin/posts/${id}`, formData, config);
+  }
+
+  return await api.post("/admin/posts", formData, config);
 };
 
-// 4. Xóa
+// 4. Xóa bài viết
 export const deletePost = async (id) => {
-    return await api.delete(`/admin/posts/${id}`);
+  return await api.delete(`/admin/posts/${id}`);
 };
